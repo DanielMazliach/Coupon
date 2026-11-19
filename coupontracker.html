@@ -182,6 +182,15 @@ svg{flex:none}
 .bc.c128 svg{max-width:none;height:96px}
 .notes{padding:14px 16px;white-space:pre-wrap;overflow-wrap:anywhere}
 .dsearch{margin:10px 16px 6px}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:0 16px 12px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chips:empty{display:none}
+.chip{flex:none;height:32px;padding:0 12px;border-radius:16px;background:var(--fill);color:var(--ink);font-size:15px;white-space:nowrap;text-align:center}
+.chip:active{opacity:.5}
+.catbox{padding:14px 16px;display:grid;gap:10px}
+.catbox .t{font-weight:600}
+.catbox .d{font-size:15px;color:var(--ink2);line-height:1.35}
+.catbox .btn{height:44px;font-size:16px}
 .foot{text-align:center;font-size:13px;color:var(--muted);margin:-6px 16px 24px}
 
 /* ---------- sheets ---------- */
@@ -280,7 +289,7 @@ svg{flex:none}
 </div></div>
 
 <div class="sheetroot" id="mini"><div class="scrim"></div><div class="sheet mini">
-  <div class="sbar"><i class="grab"></i><button class="nb start" id="rcancel">ביטול</button><div class="st">רישום מימוש</div><button class="nb end b" id="rok">רישום</button></div>
+  <div class="sbar"><i class="grab"></i><button class="nb start" id="rcancel">ביטול</button><div class="st" id="rttl">רישום מימוש</div><button class="nb end b" id="rok">רישום</button></div>
   <div class="sbody" id="rbody"></div>
 </div></div>
 
@@ -472,7 +481,7 @@ function cleanV(o) {
     code: S(o.code, 300), pin: S(o.pin, 100), orig: I(o.orig), bal: I(o.bal),
     exp: /^\d{4}-\d{2}-\d{2}$/.test(o.exp) ? o.exp : null, link: S(o.link, 2000),
     imgs: Array.isArray(o.imgs) ? o.imgs.filter(x => typeof x === 'string').slice(0, 30) : [],
-    notes: S(o.notes, 10000), used: !!o.used, usedAt: I(o.usedAt), bc: o.bc === 'c128' ? 'c128' : 'qr',
+    notes: S(o.notes, 10000), cat: S(o.cat, 40), used: !!o.used, usedAt: I(o.usedAt), bc: o.bc === 'c128' ? 'c128' : 'qr',
     hist: Array.isArray(o.hist) ? o.hist.slice(0, 2000).map(h => ({ t: I(h && h.t) || 0, a: I(h && h.a) || 0, n: S(h && h.n, 200) })) : [],
     created: I(o.created) || Date.now(), updated: I(o.updated) || Date.now()
   };
@@ -827,10 +836,23 @@ async function refresh() {
 }
 
 /* ======================= list ======================= */
-function matchV(v, q) {
+function searchTerms(q) {
+  const set = new Set([q]);
+  if (q.length >= 3) for (const x of STORE_POOL) {
+    const ks = poolKeys(x);
+    if (ks.some(k => k.startsWith(q))) ks.slice(1).forEach(k => { if (k.length >= 2) set.add(k); });
+    if (set.size > 40) break;
+  }
+  return [...set];
+}
+function matchV(v, q, terms = [q]) {
   if (!q) return {};
-  if (norm(v.name).includes(q)) return {};
-  if (v.kind === 'multi') { const s = v.stores.find(x => norm(x).includes(q)); if (s) return { store: s }; }
+  const hit = t => { const n = norm(t); return terms.some(k => n.includes(k)); };
+  if (hit(v.name)) return { own: true };
+  const card = cardById(v.cat) || findCard(v.name);
+  const own = v.kind === 'multi' && v.stores.length;
+  const stores = own ? v.stores : (card && !card.dynamic ? card.stores : []);
+  const s = stores.find(hit); if (s) return { store: s, viaCard: !own };
   if (v.code && norm(v.code).includes(q)) return {};
   if (v.notes && norm(v.notes).includes(q)) return {};
   return null;
@@ -838,7 +860,7 @@ function matchV(v, q) {
 function rowHTML({ v, st, m }) {
   const dl = daysLeft(v.exp), soon = st === 'active' && dl <= 30;
   let sub;
-  if (m && m.store) sub = `מתקבל ב־${esc(m.store)}`;
+  if (m && m.store) sub = `מתקבל ב־${esc(m.store)}${m.viaCard ? ' · לפי רשימת התו' : ''}`;
   else if (st === 'used') sub = v.usedAt ? `נוצל ${N(fmtTs(v.usedAt))}` : 'נוצל';
   else if (st === 'expired') sub = `פג תוקף ${N(fmtDate(v.exp))}`;
   else if (soon) sub = daysText(dl);
@@ -855,7 +877,8 @@ function renderList() {
     return;
   }
   const act = [], off = [];
-  for (const v of vs) { const m = matchV(v, q); if (!m) continue; const st = status(v); (st === 'active' ? act : off).push({ v, st, m }); }
+  const terms = q ? searchTerms(q) : [];
+  for (const v of vs) { const m = matchV(v, q, terms); if (!m) continue; const st = status(v); (st === 'active' ? act : off).push({ v, st, m }); }
   act.sort((a, b) => (daysLeft(a.v.exp) - daysLeft(b.v.exp)) || a.v.name.localeCompare(b.v.name, 'he'));
   off.sort((a, b) => ((b.v.usedAt || Date.parse(b.v.exp || 0) || 0) - (a.v.usedAt || Date.parse(a.v.exp || 0) || 0)));
   let h = '';
@@ -868,9 +891,13 @@ function renderList() {
       h += `<div class="sh warn">${soon.length === 1 ? 'שובר אחד פג' : `${N(soon.length)} שוברים פגים`} ב־${N(30)} הימים הקרובים</div><div class="panel">${soon.map(v => `<button class="row tap" data-id="${esc(v.id)}"><i class="spine down"></i><div class="rc"><div class="rt">${esc(v.name)}</div><div class="rs down">${daysText(daysLeft(v.exp))}</div></div><div class="rv">${v.bal != null ? `<span class="amt num">${esc(fmtMoney(v.bal))}</span>` : ''}${CHEV}</div></button>`).join('')}</div>`;
     }
   }
+  if (q && act.length) {
+    const tot = act.reduce((s, x) => s + (x.v.bal || 0), 0), ownN = act.filter(x => x.m.own).length, accN = act.filter(x => x.m.store).length;
+    h += `<div class="panel sum"><div class="l">אפשר לשלם ב„${esc(qRaw.trim())}” עם</div><div class="v"><span class="num">${esc(fmtMoney(tot))}</span></div><div class="s">${[ownN ? (ownN === 1 ? 'שובר אחד לחנות' : `${N(ownN)} שוברים לחנות`) : '', accN ? (accN === 1 ? 'תו אחד שמתקבל בה' : `${N(accN)} תווים שמתקבלים בה`) : '', act.length - ownN - accN > 0 ? `${N(act.length - ownN - accN)} התאמות נוספות` : ''].filter(Boolean).join(' · ')}</div></div>`;
+  }
   if (act.length) h += `${!q ? '<div class="sh">פעילים</div>' : ''}<div class="panel">${act.map(rowHTML).join('')}</div>`;
   if (off.length) h += `<div class="sh">נוצלו ופגי תוקף</div><div class="panel">${off.map(rowHTML).join('')}</div>`;
-  if (q && !act.length && !off.length) h = `<div class="empty">אין תוצאות עבור „${esc(qRaw)}”</div>`;
+  if (q && !act.length && !off.length) h = `<div class="empty">אין לך שובר או תו שמתקבל ב„${esc(qRaw.trim())}”</div>`;
   el.innerHTML = h;
 }
 
@@ -977,7 +1004,7 @@ function renderDetail() {
   h += `<header class="lt dlt"><h1>${esc(v.name)}</h1><span class="pill ${pill[0]}">${pill[1]}</span></header>`;
   if (v.bal != null || v.orig != null) {
     const pct = v.orig ? clamp((v.bal ?? 0) / v.orig * 100, 0, 100) : null;
-    h += `<div class="panel bal"><div class="l">יתרה</div><div class="v"><span class="num">${v.bal != null ? esc(fmtMoney(v.bal)) : '—'}</span></div>${v.orig != null ? `<div class="s">מתוך ${N(fmtMoney(v.orig))}</div>` : ''}${pct != null ? `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>` : ''}</div>`;
+    h += `<div class="panel bal tap"><div class="l">יתרה · הקשה לעדכון</div><div class="v"><span class="num">${v.bal != null ? esc(fmtMoney(v.bal)) : '—'}</span></div>${v.orig != null ? `<div class="s">מתוך ${N(fmtMoney(v.orig))}</div>` : ''}${pct != null ? `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>` : ''}</div>`;
   }
   if (v.code) {
     const b = barcodeHTML(v);
@@ -989,11 +1016,16 @@ function renderDetail() {
   else h += `<div class="btns one"><button class="btn sec" id="dused">סמן כנוצל</button></div>`;
   let info = `<div class="row"><i></i><div class="rc"><div class="rt">תוקף</div>${v.exp ? `<div class="rs ${soon ? 'down' : ''}">${st === 'expired' ? `פג לפני ${N(-dl)} ימים` : soon ? daysText(dl) : `עוד ${N(dl)} ימים`}</div>` : ''}</div><div class="rv">${v.exp ? N(fmtDate(v.exp)) : 'ללא תוקף'}</div></div>`;
   const link = safeUrl(v.link);
-  if (link) { let host = ''; try { host = new URL(link).hostname.replace(/^www\./, ''); } catch {} info += `<button class="row tap" id="dlink"><i></i><div class="rc"><div class="rt lnk">בדיקת יתרה</div><div class="rs"><span class="num">${esc(host)}</span></div></div><div class="rv">${CHEV}</div></button>`; }
+  const bcard = cardById(v.cat) || findCard(v.name), blink = link || (bcard && safeUrl(bcard.site));
+  if (blink) { let host = ''; try { host = new URL(blink).hostname.replace(/^www\./, ''); } catch {} info += `<button class="row tap" id="dlink"><i></i><div class="rc"><div class="rt lnk">בדיקת יתרה</div><div class="rs">${link ? '' : `באתר ${esc(bcard.issuer)} · `}<span class="num">${esc(host)}</span>${v.code ? ' · הקוד יועתק' : ''}</div></div><div class="rv">${CHEV}</div></button>`; }
   info += `<div class="row"><i></i><div class="rc"><div class="rt">סוג</div></div><div class="rv">${v.kind === 'multi' ? 'תו רב־חנויות' : 'חנות אחת'}</div></div>`;
   h += `<div class="panel">${info}</div>`;
+  const card = cardById(v.cat), match = !card ? findCard(v.name) : null;
+  if (card && card.dynamic) h += `<div class="sh">איפה אפשר לממש</div><div class="panel"><button class="row tap" data-open="${esc(card.source)}"><i></i><div class="rc"><div class="rt lnk">חיפוש בתי עסק ב־${esc(card.title)}</div><div class="rs">הרשימה משתנה כל הזמן ותלויה בסוג הכרטיס</div></div><div class="rv">${CHEV}</div></button></div>`;
+  else if (match && !(match.dynamic && v.cat === match.id)) h += `<div class="panel catbox"><div class="t">זה נראה כמו ${esc(match.title)}</div><div class="d">${match.dynamic ? esc(match.note) : `אפשר לטעון את ${N(match.stores.length)} החנויות שמכבדות את התו (${esc(match.issuer)})${match.partial ? ' — רשימה חלקית' : ''}.`}</div><button class="btn pri" id="dcat" data-cat="${match.id}">${match.dynamic ? 'קישור לחיפוש בתי עסק' : 'טעינת רשימת החנויות'}</button></div>`;
   if (v.kind === 'multi') {
     h += `<div class="sh">מתקבל ב־${N(v.stores.length)} חנויות</div><div class="panel">${v.stores.length > 6 ? `<div class="search dsearch"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="6.8" cy="6.8" r="5.3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m10.8 10.8 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><input id="dsq" type="text" placeholder="חיפוש חנות" autocomplete="off" autocorrect="off" spellcheck="false" value="${esc(Detail.storeQ)}"></div>` : ''}<div id="dstores">${v.stores.length ? storesRows(v) : '<div class="row s"><i></i><div class="rc rs">לא הוזנו חנויות</div></div>'}</div></div>`;
+    if (card && !card.dynamic) h += `<div class="sf">הרשימה נטענה מהקטלוג המובנה (${esc(card.issuer)}, נבדק ${N(CATALOG_CHECKED)}). ${esc(card.note)} <button class="lnk" data-open="${esc(card.source)}">לרשימה הרשמית</button></div>`;
   }
   if (v.notes) h += `<div class="sh">הערות</div><div class="panel notes sel">${esc(v.notes)}</div>`;
   if (v.hist.length) h += `<div class="sh">מימושים</div><div class="panel">${v.hist.slice().reverse().map(x => `<div class="row s"><i></i><div class="rc"><div class="rt">${x.n ? esc(x.n) : 'מימוש'}</div><div class="rs">${N(fmtTs(x.t))}</div></div><div class="rv"><span class="num">−${esc(fmtMoney(x.a))}</span></div></div>`).join('')}</div>`;
@@ -1010,7 +1042,15 @@ function bindDetail() {
     if (t.closest('#dbc')) return BcFull.open(v);
     if (t.closest('#dpinb')) { Detail.pinShown = !Detail.pinShown; $('#dpin').textContent = Detail.pinShown ? v.pin : '•'.repeat(Math.min(8, Math.max(4, v.pin.length))); $('#dpinb').textContent = Detail.pinShown ? 'הסתרה' : 'הצגה'; return; }
     if (t.closest('#dpin') && Detail.pinShown) return copyText(v.pin, 'ה־PIN הועתק');
-    if (t.closest('#dlink')) { const u = safeUrl(v.link); if (u) window.open(u, '_blank', 'noopener,noreferrer'); return; }
+    const op = t.closest('[data-open]'); if (op) { const u = safeUrl(op.dataset.open); if (u) window.open(u, '_blank', 'noopener,noreferrer'); return; }
+    const dc = t.closest('#dcat'); if (dc) return applyCardToVoucher(v, cardById(dc.dataset.cat));
+    if (t.closest('#dlink')) {
+      const c = cardById(v.cat) || findCard(v.name); const u = safeUrl(v.link) || (c && safeUrl(c.site)); if (!u) return;
+      if (v.code) { try { navigator.clipboard.writeText(v.code).catch(() => {}); } catch {} }
+      BalanceCheck.pending = { id: v.id, t: Date.now() };
+      window.open(u, '_blank', 'noopener,noreferrer'); return;
+    }
+    if (t.closest('.bal') && v.bal != null) return Redeem.openBalance(v);
     if (t.closest('#dredeem')) return Redeem.open(v);
     if (t.closest('#dused')) return toggleUsed(v);
     const im = t.closest('img[data-img]'); if (im) return Viewer.open(v.imgs, +im.dataset.i);
@@ -1019,6 +1059,19 @@ function bindDetail() {
     if (e.target.id === 'dsq') { Detail.storeQ = e.target.value; const v = Store.byId(Detail.id); if (v) $('#dstores').innerHTML = storesRows(v); }
   });
   SEG.bc = val => { const v = Store.byId(Detail.id); if (!v) return; v.bc = val; Store.save(); const b = barcodeHTML(v); const el = $('#dbc'); el.className = 'bc ' + b.type; el.innerHTML = b.svg; };
+}
+function mergeStores(list, add) {
+  const have = new Set(list.map(norm)); const out = list.slice();
+  for (const s of add) { const k = norm(s); if (k && !have.has(k)) { have.add(k); out.push(s); } }
+  return out;
+}
+function applyCardToVoucher(v, card) {
+  if (!card) return;
+  const before = snapshot(v);
+  v.cat = card.id; v.updated = Date.now();
+  if (!card.dynamic) { v.kind = 'multi'; v.stores = mergeStores(v.stores, card.stores); }
+  Store.save(); renderAll();
+  Toast.show(card.dynamic ? `סומן כ־${esc(card.title)}` : `נטענו ${N(card.stores.length)} חנויות של ${esc(card.title)}`, 'ביטול', () => restoreV(before));
 }
 function snapshot(v) { return JSON.parse(JSON.stringify(v)); }
 function restoreV(snap) { const i = Store.data.vouchers.findIndex(x => x.id === snap.id); if (i >= 0) Store.data.vouchers[i] = snap; Store.save(); renderAll(); }
@@ -1161,6 +1214,128 @@ const Viewer = {
   }
 };
 
+/* ======================= קטלוג תווים מוכרים =======================
+   רשימות מתוך התקנונים והעמודים הרשמיים של המנפיקים, נבדקו בנובמבר 2026.
+   המנפיקים משנים את הרשימות מעת לעת — לכן לכל תו יש קישור לרשימה הרשמית. */
+const CATALOG_CHECKED = '11/2026';
+const CATALOG = [
+  {
+    id: 'dreamcard', site: 'https://www.dcgift.co.il/', title: 'DREAM CARD', issuer: 'קבוצת FOX',
+    keys: ['dreamcard', 'dream card', 'דרים קארד', 'דרים כארד', 'דרימקארד', 'דרים קרד'],
+    source: 'https://www.dcgift.co.il/include', sourceLabel: 'תקנון DREAM CARD באתר dcgift',
+    note: 'לפי תקנון התו „כולל כפל מבצעים”. בגרסה „ללא כפל מבצעים” חלק מהרשתות לא נכללות. לא בחנויות עודפים.',
+    stores: ['FOX (פוקס)', 'FOX HOME (פוקס הום)', 'AMERICAN EAGLE (אמריקן איגל)', 'AERIE (אירי)', 'NIKE (נייקי)', 'FOOT LOCKER (פוט לוקר)', 'CONVERSE (קונברס)', 'LALINE (ללין)', 'MANGO (מנגו)', 'SACKS (סאקס)', 'שילב', 'BILLABONG (בילבונג)', "THE CHILDREN'S PLACE (צ'ילדרנס פלייס)", 'QUIKSILVER (קוויקסילבר)', 'FLYING TIGER (פליינג טייגר)', 'SUNGLASS HUT (סאנגלאס האט)', 'JUMBO (ג׳מבו)', 'ITAY BRANDS (איתי ברנדס)', 'MINENE (מיננה)', 'RUBY BAY (רובי ביי)']
+  },
+  {
+    id: 'lovecard', site: 'https://www.castro.com/', title: 'LOVE CARD', issuer: 'קבוצת קסטרו־הודיס',
+    keys: ['lovecard', 'love card', 'love gift card', 'לאב קארד', 'לאבקארד', 'לאב כארד', 'לאב גיפט'],
+    source: 'https://www.castro.com/love-card-terms', sourceLabel: 'תקנון LOVE CARD באתר קסטרו',
+    note: 'לא כולל חנויות עודפים (Outlet).',
+    stores: ['קסטרו (Castro)', 'קסטרו HOME (Castro Home)', 'הודיס (Hoodies)', 'קרולינה למקה (Carolina Lemke)', 'אורבניקה (Urbanica)', 'איב רושה (Yves Rocher)', 'טופ טן (Top Ten)', 'קיקו מילאנו (KIKO Milano)']
+  },
+  {
+    id: 'tavhazahav', site: 'https://tavhazahav.shufersal.co.il/tavhazahav/', title: 'תו הזהב', issuer: 'שופרסל',
+    keys: ['תו הזהב', 'תו זהב', 'tav hazahav', 'tavhazahav', 'תו הזהב שופרסל'],
+    source: 'https://tavhazahav.shufersal.co.il/tavhazahav/', sourceLabel: 'אתר תו הזהב של שופרסל',
+    note: 'מכובד ביותר מ־100 רשתות ומסעדות, והרשימה מתעדכנת לעיתים קרובות. כדאי לוודא ברשימה הרשמית לפני קנייה.',
+    stores: ['שופרסל דיל', 'שופרסל שלי', 'שופרסל אקספרס', 'שופרסל דיל אקסטרה', 'יש בשכונה', 'שופרסל אונליין', 'אורגניק מרקט', 'Good מרקט', 'Be (בי פארם)', 'FOX (פוקס)', 'FOX HOME (פוקס הום)', 'AMERICAN EAGLE (אמריקן איגל)', 'AERIE (אירי)', 'MANGO (מנגו)', 'LALINE (ללין)', 'FOOT LOCKER (פוט לוקר)', "THE CHILDREN'S PLACE (צ'ילדרנס פלייס)", 'BILLABONG (בילבונג)', 'QUIKSILVER (קוויקסילבר)', 'FLYING TIGER (פליינג טייגר)', 'MINENE (מיננה)', 'RUBY BAY (רובי ביי)', 'YANGA (יאנגה)', 'DREAM SPORT (דרים ספורט)', 'SUNGLASS HUT (סאנגלאס האט)', 'קסטרו (Castro)', 'קסטרו HOME (Castro Home)', 'הודיס (Hoodies)', 'גולף (Golf)', 'אינטימה (Intima)', 'דלתא (Delta)', 'H&O', 'ACE (אייס)', 'RENUAR (רנואר)', 'H&M', 'H&M HOME', 'אדידס (adidas)', 'מגה ספורט', 'גלי (Gali)', 'צומת ספרים', 'סטימצקי', 'אופטיקנה', 'שקם אלקטריק', 'ריקושט', 'אפריל (April)', 'טבע נאות', 'המשביר לצרכן', 'הום סנטר', 'הום סטייל (HomeStyle)', 'טויס אר אס (Toys R Us)', 'נעמן (Naaman)', 'סולתם (Soltam)', 'ורדינון (Vardinon)', 'כיתן (Kitan)', 'נימרוד (Nimrod)', 'מילגה', 'מוצצים', 'שילב', 'B גוד', 'תיק התיקים', 'אלוף הספורט', 'Factory 54', 'Superdry (סופרדריי)', 'Timberland (טימברלנד)', 'Tommy Hilfiger (טומי הילפיגר)', 'Polo Ralph Lauren (פולו ראלף לורן)', 'Nautica (נאוטיקה)', 'Nautica Home', 'Nine West (ניין ווסט)', 'Steve Madden (סטיב מאדן)', 'Sam Edelman (סם אדלמן)', 'ALDO (אלדו)', 'Vans (ואנס)', 'The North Face (נורת׳ פייס)', 'asics (אסיקס)', 'Saucony (סאקוני)', 'On (און)', 'Replay (ריפליי)', 'Crazy Line (קרייזי ליין)', "Carter's (קרטרס)", 'Oshkosh (אושקוש)', 'Desigual (דזיגואל)', 'DKNY', 'Lee Cooper (לי קופר)', 'Lee (לי)', 'Inter Jeans (אינטר ג׳ינס)', 'Polgat (פולגת)', 'Emporium (אמפוריום)', 'Jack Kuba (ג׳ק קובה)', 'Concept Store', 'Jump & Onot', 'Boardriders', 'Bonita de Mas (בוניטה דה מאס)', 'Body Shop (בודי שופ)', 'Sabon (סבון)', 'Yves Rocher (איב רושה)', 'Papaya (פפאיה)', 'Femina (פמינה)', 'Bela', 'Green (גרין)', 'Galita (גליתה)', 'Golbary (גולברי)', 'Ice Cube (אייס קיוב)', 'Instablock (אינסטבלוק)', 'Show/Off', 'TakeNap', 'TwentyFourSeven (24/7)', 'Tous (טוס)', 'LongChamp (לונגשאן)', 'Auto Depot (אוטו דיפו)', 'Solog (סולוג)', 'Food Appeal', 'New Era (ניו ארה)', 'Worker (וורקר)']
+  },
+  {
+    id: 'ramilevy', site: 'https://tav.rami-levy.co.il/', title: 'התו המלא', issuer: 'רמי לוי',
+    keys: ['התו המלא', 'תו רמי לוי', 'רמי לוי', 'rami levy', 'rami levi'],
+    source: 'https://tav.rami-levy.co.il/', sourceLabel: 'אתר התו של רמי לוי', partial: true,
+    note: 'רשימה חלקית: התו מכובד בכ־100 רשתות ומותגים, והרשימה המלאה מתעדכנת באתר רמי לוי.',
+    stores: ['רמי לוי שיווק השקמה', 'רמי לוי בשכונה', 'רמי לוי אונליין', 'רמי לוי תקשורת', 'גוד פארם (Good Pharm)', 'קפה גרג', 'קפה קפה', 'לחם ארז']
+  },
+  {
+    id: 'raayonit', site: 'https://www.raayonit.co.il/', title: 'גלובל תו פלוס', issuer: 'רעיונית',
+    keys: ['רעיונית', 'raayonit', 'גלובל תו פלוס', 'global tav plus'],
+    source: 'https://www.raayonit.co.il/club/?ClubNum=14&ClubVoucherTypeNum=56&ShowNetworks=1', sourceLabel: 'אתר רעיונית',
+    note: 'זו הרשימה של השובר „גלובל תו פלוס – רשתות”. לרעיונית יש גם שוברים מסוגים אחרים (מסעדות, ארוחות בוקר, ספא) עם רשימות משלהם, אז כדאי לבדוק איזה סוג קיבלת.',
+    stores: ['קפה קפה (CaféCafé)', 'לחם ארז', 'מקס ברנר (MAX BRENNER)', 'מנדרין (MANDARIN)', 'קפה נמרוד', 'סיציליאנו', 'פיצה עגבניה', 'פיצה סטורי', 'ג׳ויה (JOYA)', 'BLEECKER Bakery', 'ג׳פן ג׳פן (JAPAN JAPAN)', 'הסושיה', 'פרנג׳ליקו (Frangelico)', 'מקסיקנה (MEXICANA)', 'גוד פארם (Good Pharm)', 'ניצת הדובדבן', 'מחסני השוק', 'ויקטורי', 'טיב טעם', '4Chef', 'קרביץ', 'מכלול', 'צומת ספרים', 'המשביר לצרכן (MASHBIR)', 'סינמה סיטי', 'הום סנטר', 'צמר - שטיחים יפים', 'טרקלין חשמל', 'ארנקי עמנואל', 'LA-BORSA', 'מגה ספורט', 'ONE PROJECT', 'סבון של פעם', 'שילב', 'FOOT LOCKER (פוט לוקר)', 'BILLABONG (בילבונג)', 'טויס אר אס (Toys R Us)', 'הסטוק', 'FOX (פוקס)', 'FOX HOME (פוקס הום)', 'AMERICAN EAGLE (אמריקן איגל)', 'AERIE (אירי)', 'MANGO (מנגו)', "THE CHILDREN'S PLACE (צ'ילדרנס פלייס)", 'LALINE (ללין)', 'ורדינון (Vardinon)', 'נעמן (Naaman)', 'Food Appeal', 'גולף (Golf)', 'GOLF & CO', 'GOLF KIDS & Baby', 'אינטימה (Intima)', 'MAX MORETTI (מקס מורטי)', 'כיתן (Kitan)', 'פולגת (Polgat)', "Carter's (קרטרס)", 'H&O', 'GUESS (גס)', 'G CONCEPT STORE', 'DKNY', 'Sam Edelman (סם אדלמן)', 'VILEBREQUIN TEL AVIV', 'Emporium (אמפוריום)', 'Timberland (טימברלנד)', 'Nautica (נאוטיקה)', 'ALDO (אלדו)', 'גלי (Gali)', 'Nine West (ניין ווסט)', 'Lee Cooper (לי קופר)', 'Show/Off', 'ShareSpa', 'הולמס פלייס (Holmes Place)', 'MILA SPA', 'ספא במלונות בראון', 'טיליה - קליניקה רפואית', 'מלונות בראון (BROWN)', 'ADAM HOTELS', 'ישראל 2 גו - סיורים קולינריים בשווקים', 'ג׳אסט מיוזיק (Just Music)']
+  },
+  {
+    id: 'isracard', site: 'https://www.isracard.co.il/giftcard/', title: 'Gift Card ישראכרט', issuer: 'ישראכרט',
+    keys: ['ישראכרט גיפט', 'isracard gift', 'גיפט קארד ישראכרט', 'gift card ישראכרט', 'מקסימום שופינג', 'giftcard shopping', 'גיפטכארד שופינג'],
+    source: 'https://www.isracard.co.il/giftcard/general-stores/business', sourceLabel: 'אתר ישראכרט', partial: true,
+    note: 'רשימה חלקית: בעמוד של ישראכרט מופיעות 48 רשתות לכרטיס הכללי, ולגרסת השופינג יש רשימה רחבה יותר. מכובד רק בחנויות הפיזיות.',
+    stores: ['Lee Cooper (לי קופר)', 'H&O', 'Factory 54', "TCP (צ'ילדרנס פלייס)", 'גולברי (Golbary)', 'פולגת (Polgat)', 'ספרינט (Sprint)', 'דפנה לוינסון HDL', 'FOX (פוקס)', 'FOX HOME (פוקס הום)', 'Desigual (דזיגואל)', 'AMERICAN EAGLE (אמריקן איגל)', 'SWEETGIRLSHOP', 'אוריג׳ינלס (Originals)', 'בלו בירד (Blue Bird)', 'המשביר לצרכן', 'ACE (אייס)', 'ורדינון (Vardinon)', 'נעמן (Naaman)', 'כיתן (Kitan)', 'GOLF & CO', 'LALINE (ללין)', 'סבון (Sabon)', 'Body Shop (בודי שופ)', 'הבורסה לתכשיטים', 'קפה קפה (CaféCafé)', 'אופטיקנה', 'צומת ספרים']
+  },
+  {
+    id: 'maxgift', site: 'https://www.gift-card.co.il/', title: 'Gift Card MAX', issuer: 'MAX',
+    keys: ['max gift', 'maxgift', 'מקס גיפט', 'גיפט קארד מקס', 'gift card max', 'mygift', 'סופר גיפט'],
+    source: 'https://www.gift-card.co.il/', sourceLabel: 'אתר gift-card.co.il של MAX', partial: true,
+    note: 'רשימה חלקית מעלון התנאים של הכרטיס. ל־MAX יש גם „סופר גיפט קארד” עם רשימה שונה, וברשימה המלאה באתר יש עוד עשרות רשתות.',
+    stores: ['FOX (פוקס)', 'FOX HOME (פוקס הום)', 'AMERICAN EAGLE (אמריקן איגל)', 'AERIE (אירי)', 'גולף (Golf)', 'GOLF & CO', 'GOLF BABY', 'asics (אסיקס)', 'QUIKSILVER (קוויקסילבר)', 'Boardriders', 'ROXY (רוקסי)', 'BILLABONG (בילבונג)', 'FLYING TIGER (פליינג טייגר)', 'LALINE (ללין)', 'YANGA (יאנגה)', 'DREAM SPORT (דרים ספורט)', "THE CHILDREN'S PLACE (צ'ילדרנס פלייס)", 'TERMINAL X (טרמינל איקס)', 'שילב', 'ארנקי עמנואל', 'MINENE (מיננה)', 'אינטימה (Intima)', 'דלתא (Delta)', 'TNT', 'ACE (אייס)', 'H&O', 'MANGO (מנגו)', 'Desigual (דזיגואל)']
+  },
+  {
+    id: 'tavplus', title: 'תו פלוס', issuer: 'יינות ביתן · קרפור',
+    keys: ['תו פלוס', 'tav plus', 'tavplus', 'יינות ביתן', 'קרפור'],
+    source: 'https://easy.co.il/list/Supermarkets-_-Grocery-Stores?c2=22122', sourceLabel: 'רשימת הסניפים ב־easy', partial: true,
+    note: 'רשימה חלקית: רשתות המזון של הקבוצה. התו מכובד גם ברשתות נוספות לפי תנאי התו.',
+    stores: ['קרפור (Carrefour)', 'מגה בעיר', 'יינות ביתן', 'ביתן מרקט', 'שוק מהדרין']
+  },
+  {
+    id: 'nofshonit', site: 'https://www.nofshonit.co.il/', title: 'נופשונית כארד', issuer: 'נופשונית',
+    keys: ['נופשונית', 'nofshonit', 'נופשנית'],
+    source: 'https://www.nofshonit.co.il/', sourceLabel: 'אתר נופשונית', dated: true,
+    note: 'הרשימה לקוחה מעלון רשתות מכבדות מ־2021, וייתכן שחלק מהרשתות כבר אינן מכבדות. הרשימה העדכנית נמצאת בעמוד ההטבה באתר נופשונית.',
+    stores: ['שקם אלקטריק', 'spices', 'אופטיקנה', 'Factory 54', 'Armani Jeans', 'Armani Exchange', 'תכשיק - תכשיטי מעצבים', 'Calvin Klein (קלווין קליין)', 'TNT', 'שילב', 'לחם ארז', 'Arcosteel', "Levi's (ליווייס)", 'LALINE (ללין)', 'Freefit', 'סינמה סיטי', 'ספא כפר הים', 'Golf & Kids', 'Gaya', 'צוק מנרה', 'שביל התפוזים', 'AMERICAN EAGLE (אמריקן איגל)', 'FOX (פוקס)', 'FOX HOME (פוקס הום)', 'קיפצובה', 'פארק המצפה התת ימי אילת', 'Lee Cooper (לי קופר)', 'הדב הלבן', 'Solog (סולוג)', "THE CHILDREN'S PLACE (צ'ילדרנס פלייס)", 'הום סנטר', 'MANGO (מנגו)', 'Steve Madden (סטיב מאדן)', 'Topshop', 'Timberland (טימברלנד)', 'Tommy Hilfiger (טומי הילפיגר)', 'Nine West (ניין ווסט)', 'אינטימה (Intima)', 'Femina (פמינה)', 'Shark & Paul', 'פולגת (Polgat)', 'Easy Spirit', 'Skechers (סקצ׳רס)', 'BILLABONG (בילבונג)', 'כיתן (Kitan)', 'GOLF & CO', 'סטימצקי', 'Michael Kors (מייקל קורס)', 'גלי (Gali)', 'Feel', 'Nyou', 'Fred Perry (פרד פרי)', 'American Comfort', 'H&O', 'סולתם (Soltam)', 'גולף (Golf)', 'מילגה', "Drand'z", 'דלתא (Delta)', 'Nautica (נאוטיקה)', 'Ralph Lauren (ראלף לורן)', 'Boss (בוס)', 'Emporium (אמפוריום)', 'מגה ספורט', 'Juicy Couture', 'FOOT LOCKER (פוט לוקר)', 'Cafeneto (קפה נטו)', 'טרקלין חשמל', 'מנדרין (MANDARIN)', 'Fresh', 'קפה קפה (CaféCafé)', 'המשביר לצרכן', 'נעמן (Naaman)', 'ורדינון (Vardinon)', 'ShareSpa', 'דרך העץ', 'כל נעל סנטר', 'Replay (ריפליי)', 'מרחצאות געש', 'חמת גדר', 'גוד נייט', 'עמינח', 'Ice Peaks', 'מיני ישראל', 'iJump', 'קלאסיקה', 'Aqua Sport', 'פארק קרסו למדע באר שבע']
+  },
+  {
+    id: 'tenbis', site: 'https://www.10bis.co.il/', title: 'תן ביס', issuer: 'Pluxee', dynamic: true,
+    keys: ['תן ביס', '10bis', 'tenbis', 'ten bis'],
+    source: 'https://www.10bis.co.il/', sourceLabel: 'אתר תן ביס',
+    note: 'תן ביס מכובד באלפי מסעדות, בתי קפה וסופרים, והרשימה משתנה כל הזמן. החיפוש המעודכן לפי מיקום נמצא באפליקציה ובאתר של תן ביס.',
+    stores: []
+  },
+  {
+    id: 'buyme', site: 'https://buyme.co.il/', title: 'BUYME', issuer: 'BUYME', dynamic: true,
+    keys: ['buyme', 'buy me', 'ביימי', 'באיי מי', 'ביי מי'],
+    source: 'https://buyme.co.il/', sourceLabel: 'אתר BUYME',
+    note: 'BUYME מכובד ביותר מ־1,300 עסקים, והרשימה תלויה בסוג הכרטיס (BUYME ALL, אופנה, שף וכו׳) ומשתנה כל הזמן. לכן לא נטענת רשימה קבועה — החיפוש המעודכן נמצא באתר ובאפליקציה של BUYME.',
+    stores: []
+  }
+];
+const CAT_KEYS = CATALOG.map(c => ({ c, k: c.keys.map(norm) }));
+function findCard(name) {
+  const n = norm(name); if (n.length < 3) return null;
+  let best = null, bl = 0;
+  for (const { c, k } of CAT_KEYS) for (const key of k) if (key && n.includes(key) && key.length > bl) { best = c; bl = key.length; }
+  return best;
+}
+const cardById = id => CATALOG.find(c => c.id === id) || null;
+
+
+/* ======================= מאגר שמות להשלמה אוטומטית ======================= */
+const BRANDS = {
+  'אופנה': ['FOX (פוקס)', 'קסטרו (Castro)', 'גולף (Golf)', 'H&M', 'ZARA (זארה)', 'Pull&Bear (פול אנד בר)', 'Bershka (ברשקה)', 'Stradivarius (סטרדיווריוס)', 'Massimo Dutti (מאסימו דוטי)', 'MANGO (מנגו)', 'AMERICAN EAGLE (אמריקן איגל)', 'RENUAR (רנואר)', 'הודיס (Hoodies)', 'אורבניקה (Urbanica)', 'TwentyFourSeven (24/7)', 'TERMINAL X (טרמינל איקס)', 'Factory 54', 'סטורי (Story)', 'תמנון (Tamnoon)', 'אדידס (adidas)', 'נייקי (Nike)', 'פולגת (Polgat)', 'דלתא (Delta)', 'אינטימה (Intima)', 'טופ טן (Top Ten)'],
+  'מסעדות': ['ארומה (Aroma)', 'קפה גרג', 'קפה קפה (CaféCafé)', 'לנדוור (Landwer)', 'רולדין (Roladin)', 'לחם ארז', 'קפה ג׳ו (Cafe Joe)', 'קפה נמרוד', 'מקדונלדס (McDonald\'s)', 'בורגרס בר (Burgers Bar)', 'BBB', 'מוזס (Moses)', 'אגאדיר (Agadir)', 'פיצה האט (Pizza Hut)', 'דומינוס פיצה (Domino\'s)', 'פאפא ג׳ונס (Papa John\'s)', 'פיצה שמש', 'מקס ברנר (MAX BRENNER)', 'ג׳פניקה (Japanika)', 'סושי בר (Sushi Bar)', 'הסושיה', 'שיפודי התקווה', 'בנדיקט (Benedict)', 'ג׳ויה (JOYA)', 'מקסיקנה (MEXICANA)'],
+  'חשמל ואלקטרוניקה': ['KSP', 'באג (Bug)', 'איבורי (Ivory)', 'שקם אלקטריק', 'מחסני חשמל', 'פיינגו (Payngo)', 'טרקלין חשמל', 'ACE (אייס)', 'iDigital', 'אופיס דיפו (Office Depot)', 'סמסונג (Samsung)', 'שיאומי (Xiaomi)', 'LG', 'סוני (Sony)', 'אלקטרה (Electra)', 'תדיראן (Tadiran)', 'טורנדו (Tornado)', 'פיליפס (Philips)', 'דייסון (Dyson)', 'נספרסו (Nespresso)', 'פלאפון (Pelephone)', 'סלקום (Cellcom)', 'פרטנר (Partner)', 'הוט מובייל (Hot Mobile)', 'גולן טלקום (Golan Telecom)']
+};
+const mainName = s => String(s).replace(/\s*\([^)]*\)\s*$/, '').trim();
+function dedupeNames(arr) { const seen = new Set(), out = []; for (const x of arr) { const k = norm(x); if (k && !seen.has(k)) { seen.add(k); out.push(x); } } return out; }
+const ALL_BRANDS = Object.values(BRANDS).flat();
+const NAME_POOL = dedupeNames([...CATALOG.map(c => c.title), ...ALL_BRANDS]);
+const STORE_POOL = dedupeNames([...ALL_BRANDS, ...CATALOG.flatMap(c => c.stores)]);
+const POOL_KEYS = new Map();
+function poolKeys(x) {
+  let k = POOL_KEYS.get(x); if (k) return k;
+  const m = String(x).match(/^(.*?)\s*\(([^)]*)\)\s*$/);
+  k = [norm(x), ...(m ? [norm(m[1]), norm(m[2])] : [])]; POOL_KEYS.set(x, k); return k;
+}
+function suggestFrom(pool, q, exclude = []) {
+  const n = norm(q); if (!n) return [];
+  const ex = new Set(exclude.map(norm)); const a = [], b = [];
+  for (const x of pool) {
+    const ks = poolKeys(x); if (ks.some(k => ex.has(k))) continue;
+    if (ks.some(k => k.startsWith(n))) a.push(x); else if (ks.some(k => k.includes(n))) b.push(x);
+    if (a.length >= 8) break;
+  }
+  return a.concat(b).slice(0, 8);
+}
+const chipsHTML = (list, attr) => list.map(x => `<button class="chip" ${attr}="${esc(x)}">${esc(x)}</button>`).join('');
+
 /* ======================= editor ======================= */
 const Editor = {
   v: null, imgs: [], removed: [], snap: '', showPaste: false, storeQ: '',
@@ -1172,6 +1347,7 @@ const Editor = {
     const b = $('#ebody');
     b.addEventListener('input', e => this.onInput(e));
     b.addEventListener('click', e => this.onClick(e));
+    b.addEventListener('pointerdown', e => { if (e.target.closest('.chip')) e.preventDefault(); });
     b.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'esadd') { e.preventDefault(); $('#esaddb').click(); } });
     $('#fcam').onchange = e => this.addFiles(e.target);
     $('#fgal').onchange = e => this.addFiles(e.target);
@@ -1190,7 +1366,7 @@ const Editor = {
     this.imgs.forEach(im => Img.url(im.id).then(u => { im.url = u; this.renderThumbs(); }));
     $('#ebody').scrollTop = 0; this.sheet.open();
   },
-  state() { const v = this.v; return JSON.stringify([v.name, v.kind, v.stores, v.code, v.pin, v.origS, v.balS, v.exp, v.noexp, v.link, v.notes, this.imgs.map(i => i.id || ('n' + i.blob.size)), this.removed]); },
+  state() { const v = this.v; return JSON.stringify([v.name, v.kind, v.cat, v.stores, v.code, v.pin, v.origS, v.balS, v.exp, v.noexp, v.link, v.notes, this.imgs.map(i => i.id || ('n' + i.blob.size)), this.removed]); },
   async confirmDiscard() {
     if (this.state() === this.snap) return true;
     const i = await actionSheet('לבטל את השינויים?', [{ label: 'ביטול השינויים', red: true }]);
@@ -1201,11 +1377,14 @@ const Editor = {
   render() {
     const v = this.v;
     const f = (lab, k, val, attrs = '') => `<div class="f"><label for="e_${k}">${lab}</label><input id="e_${k}" data-k="${k}" value="${esc(val)}" ${attrs}></div>`;
-    let h = `<div class="panel">${f('שם', 'name', v.name, 'placeholder="למשל BUYME" autocomplete="off" enterkeyhint="next"')}<div class="f r"><label>סוג</label>${segHTML('kind', [['single', 'חנות אחת'], ['multi', 'רב־חנויות']], v.kind)}</div></div>`;
+    let h = `<div class="panel">${f('שם', 'name', v.name, 'placeholder="למשל BUYME" autocomplete="off" autocorrect="off" enterkeyhint="next"')}<div class="chips" id="nchips"></div><div class="f r"><label>סוג</label>${segHTML('kind', [['single', 'חנות אחת'], ['multi', 'רב־חנויות']], v.kind)}</div></div>`;
+    h += `<div id="esug">${this.sugHTML()}</div>`;
     h += `<div id="estores" ${v.kind === 'multi' ? '' : 'hidden'}><div class="sh">חנויות שבהן התו מתקבל · <span class="num" id="escount">${v.stores.length}</span></div><div class="panel">
-      <div class="f r"><input id="esadd" placeholder="הוספת חנות" autocomplete="off" enterkeyhint="done"><button class="lnk" id="esaddb">הוספה</button></div>
+      <div class="f r"><input id="esadd" placeholder="הוספת חנות" autocomplete="off" autocorrect="off" enterkeyhint="done"><button class="lnk" id="esaddb">הוספה</button></div>
+      <div class="chips" id="schips"></div>
       ${v.stores.length > 6 ? `<div class="f one"><input id="essq" placeholder="חיפוש ברשימה" autocomplete="off" value="${esc(this.storeQ)}"></div>` : ''}
       <div id="eslist">${this.storeRows()}</div>
+      <button class="row s act tap" id="escat"><i></i><div>טעינת רשימה של תו מוכר</div></button>
       <button class="row s act tap" id="espaste"><i></i><div>הדבקת רשימת חנויות</div></button>
       <div class="pastebox" id="espastebox" ${this.showPaste ? '' : 'hidden'}><textarea id="espta" placeholder="חנות בכל שורה, או מופרדות בפסיקים"></textarea><button class="btn pri" id="esptok">הוספה לרשימה</button></div>
     </div></div>`;
@@ -1217,6 +1396,18 @@ const Editor = {
     h += `<div class="sh">הערות</div><div class="panel"><div class="f one"><textarea data-k="notes" placeholder="הערות חופשיות">${esc(v.notes)}</textarea></div></div>`;
     if (!v.isNew) h += `<div class="panel"><button class="row act red tap" id="edel"><i></i><div>מחיקת השובר</div></button></div>`;
     const b = $('#ebody'); b.innerHTML = h; initSegs(b); this.renderThumbs();
+  },
+  nameChanged() { const sg = $('#esug'); const h = this.sugHTML(); if (sg.innerHTML !== h) sg.innerHTML = h; },
+  sugHTML() {
+    const v = this.v, c = findCard(v.name);
+    if (!c || v.cat === c.id) return '';
+    return `<div class="panel catbox"><div class="t">זוהה: ${esc(c.title)} · ${esc(c.issuer)}</div><div class="d">${c.dynamic ? esc(c.note) : `לטעון את ${N(c.stores.length)} החנויות שמכבדות את התו${c.partial ? ' (רשימה חלקית)' : ''}? נבדק ${N(CATALOG_CHECKED)}.`}</div><button class="btn pri" id="esugok" data-cat="${c.id}">${c.dynamic ? 'סימון כ־' + esc(c.title) : 'טעינת רשימת החנויות'}</button></div>`;
+  },
+  applyCard(c) {
+    if (!c) return; const v = this.v; v.cat = c.id;
+    if (!c.dynamic) { v.kind = 'multi'; v.stores = mergeStores(v.stores, c.stores); }
+    const sc = $('#ebody').scrollTop; this.render(); $('#ebody').scrollTop = sc;
+    Toast.show(c.dynamic ? `סומן כ־${esc(c.title)}` : `נטענו ${N(c.stores.length)} חנויות של ${esc(c.title)}`);
   },
   storeRows() {
     const q = norm(this.storeQ); const list = this.v.stores.map((s, i) => [s, i]).filter(([s]) => !q || norm(s).includes(q));
@@ -1231,13 +1422,18 @@ const Editor = {
   renderThumbs() { const t = $('#ethumbs'); if (!t) return; t.innerHTML = this.imgs.map((im, i) => `<div class="th">${im.url ? `<img src="${im.url}" alt="">` : ''}<button class="thx" data-rmi="${i}" aria-label="הסרת תמונה"><svg width="9" height="9" viewBox="0 0 9 9"><path d="m1 1 7 7M8 1 1 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button></div>`).join(''); },
   onInput(e) {
     const k = e.target.dataset.k;
-    if (k) { this.v[k] = e.target.value; return; }
+    if (k) { this.v[k] = e.target.value; if (k === 'name') { this.nameChanged(); $('#nchips').innerHTML = chipsHTML(suggestFrom(NAME_POOL, e.target.value).filter(x => mainName(x) !== e.target.value.trim()), 'data-nchip'); } return; }
+    if (e.target.id === 'esadd') { $('#schips').innerHTML = chipsHTML(suggestFrom(STORE_POOL, e.target.value, this.v.stores), 'data-schip'); return; }
     if (e.target.id === 'essq') { this.storeQ = e.target.value; $('#eslist').innerHTML = this.storeRows(); }
   },
   onClick(e) {
     const t = e.target;
-    if (t.closest('#esaddb')) { const inp = $('#esadd'); const n = this.addStores([inp.value]); inp.value = ''; if (n) { this.refreshStores(); } inp.focus(); return; }
+    if (t.closest('#esaddb')) { const inp = $('#esadd'); const n = this.addStores([inp.value]); inp.value = ''; $('#schips').innerHTML = ''; if (n) { this.refreshStores(); } inp.focus(); return; }
     const rm = t.closest('[data-rms]'); if (rm) { this.v.stores.splice(+rm.dataset.rms, 1); this.refreshStores(); return; }
+    const nc = t.closest('[data-nchip]'); if (nc) { const val = mainName(nc.dataset.nchip); const inp = $('#e_name'); inp.value = val; this.v.name = val; $('#nchips').innerHTML = ''; this.nameChanged(); return; }
+    const sc = t.closest('[data-schip]'); if (sc) { this.addStores([sc.dataset.schip]); const inp = $('#esadd'); inp.value = ''; $('#schips').innerHTML = ''; this.refreshStores(); inp.focus(); return; }
+    const sg = t.closest('#esugok'); if (sg) return this.applyCard(cardById(sg.dataset.cat));
+    if (t.closest('#escat')) { const list = CATALOG.filter(c => !c.dynamic); actionSheet('טעינת רשימת חנויות', list.map(c => ({ label: `${c.title} · ${c.issuer}` }))).then(i => { if (i >= 0) this.applyCard(list[i]); }); return; }
     if (t.closest('#espaste')) { this.showPaste = !this.showPaste; $('#espastebox').hidden = !this.showPaste; if (this.showPaste) $('#espta').focus(); return; }
     if (t.closest('#esptok')) { const ta = $('#espta'); const n = this.addStores(ta.value.split(/[\n,;•|]+/)); ta.value = ''; this.showPaste = false; this.render(); Toast.show(n ? `נוספו ${N(n)} חנויות` : 'לא נוספו חנויות חדשות'); return; }
     if (t.closest('#ecam')) { $('#fcam').value = ''; $('#fcam').click(); return; }
@@ -1295,16 +1491,31 @@ const Redeem = {
     this.sheet = new BottomSheet($('#mini'));
     $('#rcancel').onclick = () => this.sheet.close();
     $('#rok').onclick = () => this.submit();
-    $('#rbody').addEventListener('click', e => { if (e.target.closest('#rall') && this.v) { $('#ramt').value = String(this.v.bal / 100); } });
+    $('#rbody').addEventListener('click', e => { if (e.target.closest('#rall') && this.v && this.mode !== 'bal') { $('#ramt').value = String(this.v.bal / 100); } });
     $('#rbody').addEventListener('keydown', e => { if (e.key === 'Enter') this.submit(); });
   },
+  openBalance(v, fromCheck) {
+    this.v = v; this.mode = 'bal'; $('#rttl').textContent = 'עדכון יתרה'; $('#rok').textContent = 'עדכון';
+    $('#rbody').innerHTML = `<div class="panel"><div class="f"><label for="ramt">יתרה עכשיו</label><input id="ramt" class="num e" inputmode="decimal" value="${esc(String((v.bal || 0) / 100))}" autocomplete="off"></div></div><div class="sf" style="margin-top:-12px">${fromCheck ? 'חזרת מבדיקת היתרה — מה היתרה שהופיעה שם?' : 'אם היתרה ירדה, ההפרש יירשם כמימוש.'}</div>`;
+    this.sheet.open(); const i = $('#ramt'); i.focus({ preventScroll: true }); i.select();
+  },
+  submitBalance() {
+    const v = this.v; const a = parseMoney($('#ramt').value);
+    if (a == null || Number.isNaN(a)) { Toast.show('צריך להזין סכום'); return; }
+    const before = snapshot(v), diff = (v.bal || 0) - a;
+    v.bal = a; v.updated = Date.now();
+    if (diff > 0) v.hist.push({ t: Date.now(), a: diff, n: 'עדכון יתרה' });
+    if (a === 0 && !v.used) { v.used = true; v.usedAt = Date.now(); } else if (a > 0 && v.used) { v.used = false; v.usedAt = null; }
+    Store.save(); this.sheet.close(); renderAll();
+    Toast.show(diff === 0 ? 'היתרה לא השתנתה' : `היתרה עודכנה ל־${N(fmtMoney(a))}`, diff ? 'ביטול' : null, diff ? () => restoreV(before) : null);
+  },
   open(v) {
-    this.v = v;
+    this.v = v; this.mode = 'redeem'; $('#rttl').textContent = 'רישום מימוש'; $('#rok').textContent = 'רישום';
     $('#rbody').innerHTML = `<div class="panel"><div class="f"><label for="ramt">סכום</label><input id="ramt" class="num e" inputmode="decimal" placeholder="₪0" autocomplete="off"></div><div class="f"><label for="rnote">איפה</label><input id="rnote" placeholder="אופציונלי" autocomplete="off" enterkeyhint="done"></div></div><div class="sf" style="margin-top:-12px">יתרה נוכחית ${N(fmtMoney(v.bal))} · <button class="lnk" id="rall">כל היתרה</button></div>`;
     this.sheet.open(); $('#ramt').focus({ preventScroll: true });
   },
   submit() {
-    const v = this.v; if (!v) return; const a = parseMoney($('#ramt').value);
+    const v = this.v; if (!v) return; if (this.mode === 'bal') return this.submitBalance(); const a = parseMoney($('#ramt').value);
     if (!a || Number.isNaN(a)) { Toast.show('צריך להזין סכום'); return; }
     if (a > v.bal) { Toast.show(`הסכום גבוה מהיתרה (${N(fmtMoney(v.bal))})`); return; }
     const before = snapshot(v);
@@ -1315,6 +1526,7 @@ const Redeem = {
   }
 };
 
+const BalanceCheck = { pending: null };
 /* ======================= lock ======================= */
 const Lock = {
   code: '', opts: null, resolve: null, busy: false, visible: false,
@@ -1526,7 +1738,11 @@ function init() {
     else {
       $('#cover').style.visibility = 'hidden';
       if (Store.locked && Store.key && Date.now() - hiddenAt > 60000) lockNow();
-      else if (Store.ready) renderList();
+      else if (Store.ready) {
+        renderList();
+        const pc = BalanceCheck.pending; BalanceCheck.pending = null;
+        if (pc && Date.now() - pc.t < 15 * 60000) { const v = Store.byId(pc.id); if (v && v.bal != null) setTimeout(() => Redeem.openBalance(v, true), 350); }
+      }
     }
   });
 }
