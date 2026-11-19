@@ -1,0 +1,27 @@
+{
+  "name": "שוברים",
+  "short_name": "שוברים",
+  "description": "ניהול שוברים ותווי קנייה, מקומי במכשיר",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "./coupontracker.html",
+  "scope": "./coupontracker",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F2F2F7",
+  "theme_color": "#F9F9F9",
+  "icons": [
+    {
+      "src": "coupontracker-180.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "coupontracker-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "id": "./coupontracker.html"
+}
