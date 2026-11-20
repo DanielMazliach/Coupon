@@ -3,7 +3,7 @@
 // מוחק רק מטמונים של האפליקציה הזו — מטמונים באותו דומיין (username.github.io) משותפים לכל האפליקציות שם.
 // מעטפת (coupontracker.html): network-first עם timeout, נפילה למטמון כשאין רשת.
 // שאר הקבצים הסטטיים: cache-first. אף נתון משתמש לא עובר כאן — הנתונים ב-localStorage/IndexedDB בלבד.
-const CACHE = 'coupontracker-v14';
+const CACHE = 'coupontracker-v16';
 // רכיב זיהוי הטקסט (כ-7.5MB) נשמר במטמון נפרד שלא נמחק בעדכוני גרסה – כדי לא להוריד אותו שוב
 const OCR_CACHE = 'coupontracker-ocr-1';
 const SHELL = ['./coupontracker.html', './coupontracker.webmanifest', './coupontracker-180.png', './coupontracker-512.png'];

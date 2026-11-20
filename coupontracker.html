@@ -5,10 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- בלי apple-mobile-web-app-status-bar-style: מ-iOS 26.1 הערך black-translucent מצייר פס מעל הדף (WebKit 301994/317153).
+     בלעדיו שורת הסטטוס אטומה ומקבלת את צבע theme-color – שמותאם לצבע הרקע של הדף בבהיר ובכהה. -->
 <meta name="apple-mobile-web-app-title" content="שוברים">
-<meta name="theme-color" content="#F9F9F9" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#161618" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <meta name="format-detection" content="telephone=no">
 <meta name="referrer" content="no-referrer">
 <link rel="manifest" href="coupontracker.webmanifest">
@@ -178,6 +179,9 @@ svg{flex:none}
 .th img{width:100%;height:100%;object-fit:cover;display:block}
 .thx{position:absolute;top:4px;left:4px;width:22px;height:22px;border-radius:50%;background:#000000A0;color:#fff;display:flex;align-items:center;justify-content:center}
 .pastebox{padding:0 16px 14px}
+#estog .rv{gap:6px}
+.tchev{display:inline-flex}.tchev .chev{transition:transform .25s var(--ease)}.tchev.open .chev{transform:rotate(-90deg)}
+#esbody{border-top:.5px solid var(--sep)}
 .scanst{padding:12px 16px 14px;font-size:15px;color:var(--ink2);line-height:1.4;border-top:.5px solid var(--sep)}
 .scanst b{color:var(--ink);font-weight:600}
 .scanst pre{white-space:pre-wrap;font:13px/1.4 var(--txt);color:var(--muted);background:var(--fill);border-radius:10px;padding:10px;margin:8px 0 0;max-height:220px;overflow:auto;direction:rtl;unicode-bidi:plaintext}
@@ -347,7 +351,7 @@ svg{flex:none}
 
 <script>
 'use strict';
-const VERSION = '1.3.0';
+const VERSION = '1.4.1';
 const KEY = 'coupontracker.v1';
 const ITER = 250000;
 const $ = (s, r = document) => r.querySelector(s);
@@ -518,7 +522,7 @@ function cleanV(o) {
   return {
     id: S(o.id, 64) || uid(), name: S(o.name, 120) || 'שובר', kind: o.kind === 'multi' ? 'multi' : 'single',
     stores: Array.isArray(o.stores) ? o.stores.filter(x => typeof x === 'string' && x.trim()).map(x => x.trim().slice(0, 120)).slice(0, 5000) : [],
-    code: S(o.code, 300), pin: S(o.pin, 100), orig: I(o.orig), bal: I(o.bal),
+    code: S(o.code, 300), pin: S(o.pin, 100), cvv: /^\d{3,4}$/.test(o.cvv || '') ? o.cvv : '', cardExp: /^(0[1-9]|1[0-2])\/\d{2}$/.test(o.cardExp || '') ? o.cardExp : '', orig: I(o.orig), bal: I(o.bal),
     exp: /^\d{4}-\d{2}-\d{2}$/.test(o.exp) ? o.exp : null, link: S(o.link, 2000),
     imgs: Array.isArray(o.imgs) ? o.imgs.filter(x => typeof x === 'string').slice(0, 30) : [],
     notes: S(o.notes, 10000), cat: S(o.cat, 40), type: o.type === 'coupon' ? 'coupon' : 'voucher', valKind: o.valKind === 'item' ? 'item' : 'money', item: S(o.item, 120), qty: I(o.qty), qtyOrig: I(o.qtyOrig), deal: ['amount', 'percent', 'text'].includes(o.deal) ? o.deal : 'amount', dealVal: I(o.dealVal), dealText: S(o.dealText, 200), minBuy: I(o.minBuy), used: !!o.used, usedAt: I(o.usedAt), bc: o.bc === 'c128' ? 'c128' : 'qr',
@@ -1084,7 +1088,7 @@ const Detail = {
     } else { this.el.style.transform = ''; this.el.style.opacity = ''; this.dim.style.visibility = 'hidden'; }
   },
   open(id, x, y) {
-    this.id = id; this.pinShown = false; this.storeQ = ''; this.storeCat = null; this.showAll = false; renderDetail(); this.sc.scrollTop = 0; this.upd();
+    this.id = id; this.pinShown = false; this.cvvShown = false; this.storeQ = ''; this.storeCat = null; this.showAll = false; renderDetail(); this.sc.scrollTop = 0; this.upd();
     this.el.style.transformOrigin = `${x}px ${y}px`;
     this.el.style.visibility = 'visible'; this.dim.style.visibility = 'visible';
     this.el.classList.add('anim'); document.activeElement?.blur?.();
@@ -1166,6 +1170,7 @@ function renderDetail() {
     h += `<div class="sh">${v.type === 'coupon' ? 'קוד הקופון' : 'קוד השובר'}</div><div class="panel code"><button class="c num" id="dcode">${esc(v.code)}</button><div class="h">הקשה להעתקה · הקשה על הברקוד להצגה במסך מלא</div>${C128.ok(v.code) ? segHTML('bc', [['qr', 'QR'], ['c128', 'ברקוד']], b.type) : ''}<button class="bc ${b.type}" id="dbc" aria-label="הצגת ברקוד במסך מלא">${b.svg}</button></div>`;
   }
   if (v.pin) h += `<div class="panel"><div class="row"><i></i><div class="rc"><div class="rs" style="margin:0 0 2px">קוד PIN / אימות</div><div class="rt"><span class="num" id="dpin">${Detail.pinShown ? esc(v.pin) : '•'.repeat(Math.min(8, Math.max(4, v.pin.length)))}</span></div></div><button class="lnk" id="dpinb">${Detail.pinShown ? 'הסתרה' : 'הצגה'}</button></div></div>`;
+  if (v.cardExp || v.cvv) h += `<div class="panel">${v.cardExp ? `<div class="row"><i></i><div class="rc"><div class="rs" style="margin:0 0 2px">תוקף הכרטיס</div><div class="rt"><span class="num" dir="ltr">${esc(v.cardExp)}</span></div></div></div>` : ''}${v.cvv ? `<div class="row"><i></i><div class="rc"><div class="rs" style="margin:0 0 2px">CVV</div><div class="rt"><span class="num" id="dcvv">${Detail.cvvShown ? esc(v.cvv) : '•••'}</span></div></div><button class="lnk" id="dcvvb">${Detail.cvvShown ? 'הסתרה' : 'הצגה'}</button></div>` : ''}</div>`;
   if (st === 'used') h += `<div class="btns one"><button class="btn sec" id="dused">החזרה לפעיל</button></div>`;
   else if (v.type === 'coupon') h += `<div class="btns one"><button class="btn pri" id="dused">השתמשתי בקופון</button></div>`;
   else if (v.valKind === 'item' && (v.qty || 0) > 1) h += `<div class="btns"><button class="btn pri" id="ditem">מימוש אחד</button><button class="btn sec" id="dused">סמן כנוצל</button></div>`;
@@ -1200,6 +1205,8 @@ function bindDetail() {
     if (t.closest('#dbc')) return BcFull.open(v);
     if (t.closest('#dpinb')) { Detail.pinShown = !Detail.pinShown; $('#dpin').textContent = Detail.pinShown ? v.pin : '•'.repeat(Math.min(8, Math.max(4, v.pin.length))); $('#dpinb').textContent = Detail.pinShown ? 'הסתרה' : 'הצגה'; return; }
     if (t.closest('#dpin') && Detail.pinShown) return copyText(v.pin, 'ה־PIN הועתק');
+    if (t.closest('#dcvvb')) { Detail.cvvShown = !Detail.cvvShown; $('#dcvv').textContent = Detail.cvvShown ? v.cvv : '•••'; $('#dcvvb').textContent = Detail.cvvShown ? 'הסתרה' : 'הצגה'; return; }
+    if (t.closest('#dcvv') && Detail.cvvShown) return copyText(v.cvv, 'ה־CVV הועתק');
     if (t.closest('#dshowall')) { Detail.showAll = true; $('#dstores').innerHTML = storesRows(v); return; }
     const dct = t.closest('[data-dcat]'); if (dct) { Detail.storeCat = Detail.storeCat === dct.dataset.dcat ? null : dct.dataset.dcat; $$('#dcats .chip').forEach(b => b.classList.toggle('on', b.dataset.dcat === Detail.storeCat)); $('#dstores').innerHTML = storesRows(v); return; }
     const op = t.closest('[data-open]'); if (op) { const u = safeUrl(op.dataset.open); if (u) window.open(u, '_blank', 'noopener,noreferrer'); return; }
@@ -2124,7 +2131,11 @@ function parseVoucherText(raw) {
     if (!o && !b) { const im = t.match(/שובר\s+(?:ל|על\s|עבור\s)\s?([א-ת][^\n,.;:!0-9]{1,28})/); if (im) out.item = im[1].trim(); }
   }
   // PIN
-  const pin = t.match(/(?:pin|קוד\s?סודי|קוד\s?אימות|קוד\s?זיהוי|cvv|cvc|סיסמ[הא])\s?[:#\-]?\s?(\d{3,8})(?!\d)/i);
+  const cvv = t.match(/(?:cvv2?|cvc2?|cid|קוד\s?אבטחה|3\s?ספרות)\s?[:#\-]?\s?(\d{3,4})(?!\d)/i);
+  if (cvv) { out.cvv = cvv[1]; const k = t.indexOf(cvv[0]); used.push([k, k + cvv[0].length]); }
+  const ce = t.match(/(?:valid\s?thru|valid\s?through|good\s?thru|exp(?:iry|ires|\.)?\s?(?:date)?|תוקף\s?(?:ה)?כרטיס|תוקף)[^\d\n]{0,12}(?<![\d.\/])(0[1-9]|1[0-2])\s?\/\s?(\d{2}|20\d{2})(?![\d.\/])/i);
+  if (ce && (out.cvv || /כרטיס|card|valid|thru|exp/i.test(t))) out.cardExp = ce[1] + '/' + ce[2].slice(-2);
+  const pin = t.match(/(?:pin|קוד\s?סודי|קוד\s?אימות|קוד\s?זיהוי|סיסמ[הא])\s?[:#\-]?\s?(\d{3,8})(?!\d)/i);
   if (pin) { out.pin = pin[1]; const k = t.indexOf(pin[0]); used.push([k, k + pin[0].length]); }
   const isUsed = (a, b) => used.some(([x, y]) => a < y && b > x);
   // קוד
@@ -2240,7 +2251,7 @@ const Editor = {
     $('#fgal').onchange = e => this.addFiles(e.target);
     const sc = e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) this.scanFile(f); };
     $('#fscam').onchange = sc; $('#fsgal').onchange = sc;
-    SEG.kind = val => { this.v.kind = val; $('#estores').hidden = val !== 'multi'; };
+    SEG.kind = val => { this.v.kind = val; $('#estores').hidden = val !== 'multi'; if (val === 'multi' && !this.v.stores.length && !this.storesOpen) this.toggleStores(true); };
     const rr = () => { const sc = $('#ebody').scrollTop; this.render(); $('#ebody').scrollTop = sc; };
     SEG.rtype = val => { this.v.type = val; if (this.v.isNew) $('#ettl').textContent = 'חדש'; rr(); };
     SEG.vkind = val => { this.v.valKind = val; rr(); };
@@ -2256,13 +2267,14 @@ const Editor = {
     const dv = this.v.dealVal; this.v.dealValS = dv == null ? '' : String(this.v.deal === 'amount' ? dv / 100 : dv);
     this.v.minBuyS = this.v.minBuy != null ? String(this.v.minBuy / 100) : ''; this.v.qtyS = this.v.qty != null ? String(this.v.qty) : '1';
     this.imgs = this.v.imgs.map(id => ({ id, url: null })); this.removed = []; this.showPaste = false; this.storeQ = '';
+    this.storesOpen = !this.v.stores.length;
     this.scanSt = ''; this.scanPaste = false; this.autoK = []; this.ocrNo = false; this.lastText = '';
     $('#ettl').textContent = isNew ? 'חדש' : (this.v.type === 'coupon' ? 'עריכת קופון' : 'עריכת שובר');
     this.render(); this.snap = this.state();
     this.imgs.forEach(im => Img.url(im.id).then(u => { im.url = u; this.renderThumbs(); }));
     $('#ebody').scrollTop = 0; this.sheet.open();
   },
-  state() { const v = this.v; return JSON.stringify([v.type, v.valKind, v.item, v.qtyS, v.deal, v.dealValS, v.dealText, v.minBuyS, v.name, v.kind, v.cat, v.stores, v.code, v.pin, v.origS, v.balS, v.exp, v.noexp, v.link, v.notes, this.imgs.map(i => i.id || ('n' + i.blob.size)), this.removed]); },
+  state() { const v = this.v; return JSON.stringify([v.type, v.valKind, v.item, v.qtyS, v.deal, v.dealValS, v.dealText, v.minBuyS, v.name, v.kind, v.cat, v.stores, v.code, v.pin, v.cvv, v.cardExp, v.origS, v.balS, v.exp, v.noexp, v.link, v.notes, this.imgs.map(i => i.id || ('n' + i.blob.size)), this.removed]); },
   async confirmDiscard() {
     if (this.state() === this.snap) return true;
     const i = await actionSheet('לבטל את השינויים?', [{ label: 'ביטול השינויים', red: true }]);
@@ -2280,16 +2292,7 @@ const Editor = {
       h += `<div class="sh">ההטבה</div><div class="panel"><div class="f r"><label>סוג הטבה</label>${segHTML('deal', [['amount', '₪ הנחה'], ['percent', '% הנחה'], ['text', 'אחר']], v.deal)}</div>${v.deal === 'text' ? f('ההטבה', 'dealText', v.dealText, 'placeholder="למשל 1+1 על כל החולצות" autocomplete="off"') : f(v.deal === 'percent' ? 'אחוז' : 'סכום', 'dealValS', v.dealValS, `class="num e" inputmode="decimal" placeholder="${v.deal === 'percent' ? '50%' : '₪50'}" autocomplete="off"`)}${f('בקנייה מעל', 'minBuyS', v.minBuyS, 'class="num e" inputmode="decimal" placeholder="לא חובה" autocomplete="off"')}</div>`;
     }
     h += `<div id="esug">${isC ? '' : this.sugHTML()}</div>`;
-    h += `<div id="estores" ${v.kind === 'multi' && !isC ? '' : 'hidden'}><div class="sh">חנויות שבהן התו מתקבל · <span class="num" id="escount">${v.stores.length}</span></div><div class="panel">
-      <div class="f r"><input id="esadd" placeholder="הוספת חנות" autocomplete="off" autocorrect="off" enterkeyhint="done"><button class="lnk" id="esaddb">הוספה</button></div>
-      <div class="chips" id="schips"></div>
-      ${v.stores.length > 6 ? `<div class="f one"><input id="essq" placeholder="חיפוש ברשימה" autocomplete="off" value="${esc(this.storeQ)}"></div>` : ''}
-      <div id="eslist">${this.storeRows()}</div>
-      <button class="row s act tap" id="escat"><i></i><div>טעינת רשימה של תו מוכר</div></button>
-      <button class="row s act tap" id="espaste"><i></i><div>הדבקת רשימת חנויות</div></button>
-      <div class="pastebox" id="espastebox" ${this.showPaste ? '' : 'hidden'}><textarea id="espta" placeholder="חנות בכל שורה, או מופרדות בפסיקים"></textarea><button class="btn pri" id="esptok">הוספה לרשימה</button></div>
-    </div></div>`;
-    h += `<div class="sh">${isC ? 'קוד קופון' : 'קודים'}</div><div class="panel">${f(isC ? 'קוד' : 'מספר / קוד', 'code', v.code, 'class="num e" dir="ltr" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"')}${isC ? '' : f('PIN / אימות', 'pin', v.pin, 'class="num e" dir="ltr" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"')}</div>`;
+    h += `<div class="sh">${isC ? 'קוד קופון' : 'קודים'}</div><div class="panel">${f(isC ? 'קוד' : 'מספר / קוד', 'code', v.code, 'class="num e" dir="ltr" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"')}${isC ? '' : f('PIN / אימות', 'pin', v.pin, 'class="num e" dir="ltr" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"') + f('תוקף הכרטיס', 'cardExp', v.cardExp, 'class="num e" dir="ltr" inputmode="numeric" placeholder="MM/YY" maxlength="5" autocomplete="off"') + f('CVV', 'cvv', v.cvv, 'class="num e" dir="ltr" inputmode="numeric" placeholder="3 ספרות בגב הכרטיס" maxlength="4" autocomplete="off"')}</div>${isC ? '' : '<div class="sf">תוקף ו־CVV רלוונטיים לכרטיסי מתנה שעובדים כמו כרטיס אשראי (Max, ישראכרט וכו׳).</div>'}`;
     if (!isC) {
       h += `<div class="sh">שווי</div><div class="panel"><div class="f r"><label>השובר הוא</label>${segHTML('vkind', [['money', 'סכום כסף'], ['item', 'פריט / מוצר']], v.valKind)}</div>`;
       h += v.valKind === 'item'
@@ -2300,6 +2303,18 @@ const Editor = {
     h += `<div class="sh">${isC ? 'קישור (לאתר החנות / לקופון)' : 'בדיקת יתרה'}</div><div class="panel">${f('לינק', 'link', v.link, 'class="e" type="url" inputmode="url" dir="ltr" placeholder="https://" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"')}</div>`;
     h += `<div class="sh">תמונות</div><div class="panel"><div class="thumbs" id="ethumbs"></div><button class="row s act tap" id="ecam"><i></i><div>צילום השובר</div></button><button class="row s act tap" id="egal"><i></i><div>בחירה מהגלריה</div></button></div>`;
     h += `<div class="sh">הערות</div><div class="panel"><div class="f one"><textarea data-k="notes" placeholder="הערות חופשיות">${esc(v.notes)}</textarea></div></div>`;
+    const storesH = isC ? '' : `<div id="estores" ${v.kind === 'multi' && !isC ? '' : 'hidden'}><div class="sh">חנויות</div><div class="panel">
+      <button class="row tap" id="estog" aria-expanded="${this.storesOpen ? 'true' : 'false'}" aria-controls="esbody"><i></i><div class="rc"><div class="rt">חנויות שבהן התו מתקבל</div><div class="rs" id="escount">${this.storeCountText()}</div></div><div class="rv"><span class="lnk" id="estogl">${this.storesOpen ? 'סגירה' : 'פתיחה'}</span><span class="tchev ${this.storesOpen ? 'open' : ''}">${CHEV}</span></div></button>
+      <div id="esbody" ${this.storesOpen ? '' : 'hidden'}>
+      <div class="f r"><input id="esadd" placeholder="הוספת חנות" autocomplete="off" autocorrect="off" enterkeyhint="done"><button class="lnk" id="esaddb">הוספה</button></div>
+      <div class="chips" id="schips"></div>
+      ${v.stores.length > 6 ? `<div class="f one"><input id="essq" placeholder="חיפוש ברשימה" autocomplete="off" value="${esc(this.storeQ)}"></div>` : ''}
+      <div id="eslist">${this.storeRows()}</div>
+      <button class="row s act tap" id="escat"><i></i><div>טעינת רשימה של תו מוכר</div></button>
+      <button class="row s act tap" id="espaste"><i></i><div>הדבקת רשימת חנויות</div></button>
+      <div class="pastebox" id="espastebox" ${this.showPaste ? '' : 'hidden'}><textarea id="espta" placeholder="חנות בכל שורה, או מופרדות בפסיקים"></textarea><button class="btn pri" id="esptok">הוספה לרשימה</button></div>
+    </div></div></div>`;
+    h += storesH;
     if (!v.isNew) h += `<div class="panel"><button class="row act red tap" id="edel"><i></i><div>${isC ? 'מחיקת הקופון' : 'מחיקת השובר'}</div></button></div>`;
     const b = $('#ebody'); b.innerHTML = h; initSegs(b); this.renderThumbs();
     for (const k of this.autoK || []) b.querySelector(`[data-k="${k}"]`)?.closest('.f')?.classList.add('auto');
@@ -2326,7 +2341,7 @@ const Editor = {
       if (f.deal && empty('dealValS')) { v.deal = f.deal; v.dealValS = String(f.deal === 'amount' ? f.dealVal / 100 : f.dealVal); done.push('הנחה'); keys.push('dealValS'); }
       if (f.minBuy) set('minBuyS', f.minBuy / 100, 'מינימום קנייה');
     } else {
-      set('pin', f.pin, 'PIN');
+      set('pin', f.pin, 'PIN'); set('cvv', f.cvv, 'CVV'); set('cardExp', f.cardExp, 'תוקף כרטיס');
       if (f.item && empty('origS') && empty('item')) { v.valKind = 'item'; v.item = f.item; done.push('פריט'); keys.push('item'); }
       else if (v.valKind !== 'item') { if (f.orig != null) set('origS', f.orig / 100, 'סכום'); if (f.bal != null) set('balS', f.bal / 100, 'יתרה'); }
     }
@@ -2390,7 +2405,16 @@ const Editor = {
     const q = norm(this.storeQ); const list = this.v.stores.map((s, i) => [s, i]).filter(([s]) => !q || norm(s).includes(q));
     return list.map(([s, i]) => `<div class="row s"><button class="rmb" data-rms="${i}" aria-label="הסרה"><svg width="10" height="2" viewBox="0 0 10 2"><path d="M0 1h10" stroke="#fff" stroke-width="2"/></svg></button><div class="rc"><div class="rt wrap">${esc(s)}</div></div></div>`).join('');
   },
-  refreshStores() { $('#eslist').innerHTML = this.storeRows(); $('#escount').textContent = this.v.stores.length; },
+  refreshStores() { $('#eslist').innerHTML = this.storeRows(); $('#escount').textContent = this.storeCountText(); },
+  storeCountText() { const n = this.v.stores.length; return n === 0 ? 'עדיין אין חנויות ברשימה' : n === 1 ? 'חנות אחת' : `${n} חנויות`; },
+  toggleStores(open = !this.storesOpen) {
+    this.storesOpen = open;
+    const b = $('#esbody'); if (!b) return; b.hidden = !open;
+    $('#estog').setAttribute('aria-expanded', open ? 'true' : 'false');
+    $('#estogl').textContent = open ? 'סגירה' : 'פתיחה';
+    $('#estores .tchev').classList.toggle('open', open);
+    if (open) requestAnimationFrame(() => $('#estog').scrollIntoView({ block: 'start', behavior: RM.matches ? 'auto' : 'smooth' }));
+  },
   addStores(arr) {
     const have = new Set(this.v.stores.map(norm)); let n = 0;
     for (let s of arr) { s = s.trim(); if (!s) continue; const k = norm(s); if (!k || have.has(k)) continue; have.add(k); this.v.stores.push(s.slice(0, 120)); n++; }
@@ -2399,12 +2423,24 @@ const Editor = {
   renderThumbs() { const t = $('#ethumbs'); if (!t) return; t.innerHTML = this.imgs.map((im, i) => `<div class="th">${im.url ? `<img src="${im.url}" alt="">` : ''}<button class="thx" data-rmi="${i}" aria-label="הסרת תמונה"><svg width="9" height="9" viewBox="0 0 9 9"><path d="m1 1 7 7M8 1 1 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button></div>`).join(''); },
   onInput(e) {
     const k = e.target.dataset.k;
+    if (k === 'cardExp') {
+      const d = e.target.value.replace(/\D/g, '').slice(0, 4), val = d.length > 2 ? d.slice(0, 2) + '/' + d.slice(2) : d;
+      if (e.target.value !== val) e.target.value = val; this.v.cardExp = val;
+      const m = val.match(/^(0[1-9]|1[0-2])\/(\d{2})$/);
+      if (m && !this.v.exp) { // אם לשובר עוד אין תוקף – לוקחים את סוף החודש של הכרטיס
+        const dt = new Date(2000 + +m[2], +m[1], 0); this.v.exp = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+        this.v.noexp = false; const ei = $('#e_exp'); if (ei) { ei.value = this.v.exp; ei.closest('.f').classList.add('auto'); $('#eexprow').hidden = false; } const sw = $('#ebody [data-sw="noexp"]'); if (sw && sw.getAttribute('aria-checked') === 'true') { sw.setAttribute('aria-checked', 'false'); sw.querySelector('.on').style.opacity = 0; sw.querySelector('.k').style.transform = 'translateX(20px)'; }
+      }
+      return;
+    }
+    if (k === 'cvv') { const d = e.target.value.replace(/\D/g, '').slice(0, 4); if (e.target.value !== d) e.target.value = d; this.v.cvv = d; return; }
     if (k) { this.v[k] = e.target.value; if (k === 'name') { this.nameChanged(); $('#nchips').innerHTML = chipsHTML(suggestFrom(NAME_POOL, e.target.value).filter(x => mainName(x) !== e.target.value.trim()), 'data-nchip'); } return; }
     if (e.target.id === 'esadd') { $('#schips').innerHTML = chipsHTML(suggestFrom(STORE_POOL, e.target.value, this.v.stores), 'data-schip'); return; }
     if (e.target.id === 'essq') { this.storeQ = e.target.value; $('#eslist').innerHTML = this.storeRows(); }
   },
   onClick(e) {
     const t = e.target;
+    if (t.closest('#estog')) return this.toggleStores();
     if (t.closest('#escam')) return $('#fscam').click();
     if (t.closest('#escgal')) return $('#fsgal').click();
     if (t.closest('#esctxt')) { this.scanPaste = !this.scanPaste; $('#esctbox').hidden = !this.scanPaste; if (this.scanPaste) $('#escta').focus(); return; }
@@ -2450,6 +2486,8 @@ const Editor = {
       if (bal == null && v.isNew) bal = orig;
     }
     if (v.link.trim() && !safeUrl(v.link)) { Toast.show('הלינק לא תקין'); return; }
+    if (!isC && v.cardExp && !/^(0[1-9]|1[0-2])\/\d{2}$/.test(v.cardExp)) { Toast.show('תוקף הכרטיס צריך להיות בפורמט MM/YY'); $('#e_cardExp').focus(); return; }
+    if (!isC && v.cvv && !/^\d{3,4}$/.test(v.cvv)) { Toast.show('CVV הוא 3 או 4 ספרות'); $('#e_cvv').focus(); return; }
     const exp = v.noexp ? null : (/^\d{4}-\d{2}-\d{2}$/.test(v.exp || '') ? v.exp : null);
     if (!v.noexp && !exp) { Toast.show('צריך לבחור תאריך תוקף או לסמן „ללא תוקף”'); return; }
     $('#esave').disabled = true;
@@ -2457,7 +2495,7 @@ const Editor = {
       const ids = [];
       for (const im of this.imgs) { if (im.id) ids.push(im.id); else { const id = await Img.save(im.blob); Img.urls.set(id, im.url); ids.push(id); } }
       for (const id of this.removed) await Img.del(id);
-      const out = cleanV({ ...v, name, orig, bal, exp, imgs: ids, link: v.link.trim(), code: v.code.trim(), pin: isC ? '' : v.pin.trim(), dealVal, minBuy, qty, qtyOrig, dealText: v.dealText.trim(), item: v.item.trim(), kind: isC ? 'single' : v.kind, stores: isC ? [] : v.stores, updated: Date.now() });
+      const out = cleanV({ ...v, name, orig, bal, exp, imgs: ids, link: v.link.trim(), code: v.code.trim(), pin: isC ? '' : v.pin.trim(), cvv: isC ? '' : v.cvv, cardExp: isC ? '' : v.cardExp, dealVal, minBuy, qty, qtyOrig, dealText: v.dealText.trim(), item: v.item.trim(), kind: isC ? 'single' : v.kind, stores: isC ? [] : v.stores, updated: Date.now() });
       if (out.bal === 0 && out.orig && !out.used && !v.isNew) { out.used = true; out.usedAt = Date.now(); }
       const i = Store.data.vouchers.findIndex(x => x.id === out.id);
       if (i >= 0) Store.data.vouchers[i] = out; else Store.data.vouchers.unshift(out);
@@ -2673,7 +2711,7 @@ function applyTheme() {
   const t = Store.ui.theme, r = document.documentElement;
   if (t === 'light' || t === 'dark') r.dataset.theme = t; else delete r.dataset.theme;
   const dark = t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
-  $$('meta[name=theme-color]').forEach(m => { m.content = dark ? '#161618' : '#F9F9F9'; });
+  $$('meta[name=theme-color]').forEach(m => { m.content = dark ? '#000000' : '#F2F2F7'; });
 }
 function renderSettings() {
   const vs = Store.data.vouchers; const nImg = vs.reduce((s, v) => s + v.imgs.length, 0);

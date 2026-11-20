@@ -9,7 +9,7 @@
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#F2F2F7",
-  "theme_color": "#F9F9F9",
+  "theme_color": "#F2F2F7",
   "icons": [
     {
       "src": "coupontracker-180.png",
