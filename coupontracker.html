@@ -108,6 +108,25 @@ svg{flex:none}
 
 /* summary */
 .sum{padding:16px 16px 18px}
+.wallet{margin:0 16px 22px;display:flex;flex-direction:column}
+.wcard{position:relative;display:flex;flex-direction:column;justify-content:space-between;width:100%;height:184px;margin-bottom:-118px;padding:14px 16px 16px;border-radius:16px;color:#fff;text-align:right;background:var(--wc);box-shadow:0 -1px 0 rgba(255,255,255,.18) inset,0 -6px 14px rgba(0,0,0,.14);overflow:hidden;-webkit-tap-highlight-color:transparent}
+.wcard:last-child{margin-bottom:0}
+.wcard:first-child{box-shadow:0 -1px 0 rgba(255,255,255,.18) inset}
+.wcard::after{content:"";position:absolute;inset:0;background:#000;opacity:0;transition:opacity .15s;pointer-events:none}
+.wcard:active::after{opacity:.12}
+.wcard .wt{display:flex;align-items:center;gap:8px;min-height:38px}
+.wcard .wn{flex:1;min-width:0;font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wcard .wv{font-family:var(--num);font-size:20px;font-weight:700;direction:ltr;unicode-bidi:isolate;font-variant-numeric:tabular-nums}
+.wcard .wp{font-size:12px;background:rgba(0,0,0,.28);border-radius:10px;padding:2px 8px;white-space:nowrap}
+.wcard .wb{display:flex;flex-direction:column;gap:8px}
+.wcard .wbig{font-family:var(--num);font-size:34px;line-height:38px;font-weight:700;direction:ltr;unicode-bidi:isolate;font-variant-numeric:tabular-nums;text-align:right}
+.wcard .ws{display:flex;justify-content:space-between;gap:10px;font-size:13px;color:rgba(255,255,255,.88)}
+.wcard .ws span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wcard .wbar{height:4px;border-radius:2px;background:rgba(255,255,255,.25);overflow:hidden}
+.wcard .wbar i{display:block;height:100%;background:#fff;border-radius:2px}
+.wcard:last-child .wt .wv{visibility:hidden}
+.wcard:last-child .wp{display:none}
+#list .wcard .rt{color:#fff;margin:0}#list .wcard .rs{color:rgba(255,255,255,.88);margin:0}
 .sum .l{font-size:13px;color:var(--muted)}
 .sum .v{font-size:40px;line-height:46px;font-weight:700;margin:2px 0 2px}
 .sum .s{font-size:15px;color:var(--ink2)}
@@ -316,7 +335,7 @@ svg{flex:none}
 
 <script>
 'use strict';
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const KEY = 'coupontracker.v1';
 const ITER = 250000;
 const $ = (s, r = document) => r.querySelector(s);
@@ -881,6 +900,25 @@ function valueShort(v) {
   if (v.valKind === 'item') return `<span class="amt short">${esc(v.item || 'פריט')}</span>${(v.qty || 0) > 1 ? ` <span class="num">×${v.qty}</span>` : ''}`;
   return v.bal != null ? `<span class="amt num">${esc(fmtMoney(v.bal))}</span>` : '';
 }
+const WALLET_C = { dreamcard: '#5B3FA8', lovecard: '#9D174D', tavhazahav: '#8A5A00', ramilevy: '#B91C1C', raayonit: '#1F4FB8', raayonit312: '#1F4FB8', swishplus: '#0F766E', swishtasty: '#0F766E', swishdine: '#0F766E', cashbackplus: '#1E6B4E', isracard: '#1E6B4E', maxgift: '#334155', tavplus: '#6B21A8', nofshonit: '#0369A1', tenbis: '#C2410C', buyme: '#C2410C' };
+const WALLET_P = ['#1F4FB8', '#5B3FA8', '#1E6B4E', '#9D174D', '#0F766E', '#C2410C', '#334155', '#8A5A00'];
+function walletCard(v) { return v.type !== 'coupon' && v.valKind !== 'item' ? (cardById(v.cat) || findCard(v.name) || null) : null; }
+function isWallet(v) { return v.type !== 'coupon' && v.valKind !== 'item' && (v.kind === 'multi' || !!walletCard(v)); }
+function walletColor(v) { const c = walletCard(v); if (c && WALLET_C[c.id]) return WALLET_C[c.id]; let h = 0; for (const ch of v.name || '') h = (h * 31 + ch.charCodeAt(0)) | 0; return WALLET_P[Math.abs(h) % WALLET_P.length]; }
+function walletHTML(items) {
+  // סדר ארנק: הכרטיס הקדמי (התחתון, שמוצג במלואו) הוא זה שהתוקף שלו הכי קרוב
+  return `<div class="wallet">${items.slice().reverse().map(({ v, st, m }) => {
+    const dl = daysLeft(v.exp), soon = dl <= 30;
+    let sub;
+    if (m && m.list) sub = `מתקבל ב־${m.list.slice(0, 2).map(x => esc(mainName(x))).join(', ')}${m.list.length > 2 ? ` ועוד ${N(m.list.length - 2)}` : ''}`;
+    else if (m && m.store) sub = `מתקבל ב־${esc(m.store)}`;
+    if (m && m.viaCard && (m.list || m.store)) sub += ' · לפי רשימת התו';
+    if (!(m && (m.list || m.store))) sub = soon ? daysText(dl) : v.exp ? `בתוקף עד ${N(fmtDate(v.exp))}` : 'ללא תוקף';
+    const n = v.stores.length, val = v.bal != null ? esc(fmtMoney(v.bal)) : '—';
+    const pct = v.orig && v.bal != null ? clamp(v.bal / v.orig, 0, 1) * 100 : null;
+    return `<button class="wcard" style="--wc:${walletColor(v)}" data-id="${esc(v.id)}"><div class="wt"><span class="wn rt">${esc(v.name)}</span>${soon ? `<span class="wp">${N(dl < 0 ? 0 : dl)} ימים</span>` : ''}<span class="wv">${val}</span></div><div class="wb"><div class="wbig">${val}</div>${pct != null && pct < 100 ? `<div class="wbar"><i style="width:${pct.toFixed(1)}%"></i></div>` : ''}<div class="ws"><span class="rs">${sub}</span><span>${n ? `${N(n)} חנויות` : ''}</span></div></div></button>`;
+  }).join('')}</div>`;
+}
 function rowHTML({ v, st, m }) {
   const dl = daysLeft(v.exp), soon = st === 'active' && dl <= 30;
   let sub;
@@ -925,7 +963,9 @@ function renderList() {
     h += `<div class="panel sum"><div class="l">אפשר לשלם ${q ? `ב„${esc(qRaw.trim())}”` : `ב${esc(CAT_LABEL[List.cat])}`} עם</div><div class="v"><span class="num">${esc(fmtMoney(tot))}</span></div><div class="s">${[ownN ? (ownN === 1 ? 'שובר אחד לחנות' : `${N(ownN)} שוברים לחנות`) : '', accN ? (accN === 1 ? `תו אחד שמתקבל ${q ? 'בה' : 'שם'}` : `${N(accN)} תווים שמתקבלים ${q ? 'בה' : 'שם'}`) : '', act.length - ownN - accN > 0 ? `${N(act.length - ownN - accN)} התאמות נוספות` : ''].filter(Boolean).join(' · ')}</div></div>`;
   }
   const actV = act.filter(x => x.v.type !== 'coupon'), actC = act.filter(x => x.v.type === 'coupon');
-  if (actV.length) h += `<div class="sh">${filt ? 'שוברים ותווים' : 'שוברים פעילים'}</div><div class="panel">${actV.map(rowHTML).join('')}</div>`;
+  const actW = actV.filter(x => isWallet(x.v)), actR = actV.filter(x => !isWallet(x.v));
+  if (actW.length) h += `<div class="sh">תווים וכרטיסי מתנה</div>${walletHTML(actW)}`;
+  if (actR.length) h += `<div class="sh">${filt ? 'שוברים' : 'שוברים פעילים'}</div><div class="panel">${actR.map(rowHTML).join('')}</div>`;
   if (actC.length) h += `<div class="sh">קופונים</div><div class="panel">${actC.map(rowHTML).join('')}</div>`;
   if (off.length) h += `<div class="sh">נוצלו ופגי תוקף</div><div class="panel">${off.map(rowHTML).join('')}</div>`;
   if (filt && !act.length && !off.length) h += `<div class="empty">אין לך שובר, תו או קופון ל${q ? `„${esc(qRaw.trim())}”` : esc(CAT_LABEL[List.cat])}</div>`;
