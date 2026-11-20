@@ -108,7 +108,11 @@ svg{flex:none}
 
 /* summary */
 .sum{padding:16px 16px 18px}
-.wallet{margin:0 16px 22px;display:flex;flex-direction:column}
+.wwrap{margin:0 16px 22px}
+.wallet{display:flex;flex-direction:column;touch-action:pan-y}
+.wdots{display:flex;justify-content:center;gap:7px;padding-top:12px}
+.wdots i{width:7px;height:7px;border-radius:50%;background:var(--chev)}
+.wdots i.on{background:var(--ink2)}
 .wcard{position:relative;display:flex;flex-direction:column;justify-content:space-between;width:100%;height:184px;margin-bottom:-118px;padding:14px 16px 16px;border-radius:16px;color:#fff;text-align:right;background:var(--wc);box-shadow:0 -1px 0 rgba(255,255,255,.18) inset,0 -6px 14px rgba(0,0,0,.14);overflow:hidden;-webkit-tap-highlight-color:transparent}
 .wcard:last-child{margin-bottom:0}
 .wcard:first-child{box-shadow:0 -1px 0 rgba(255,255,255,.18) inset}
@@ -174,6 +178,12 @@ svg{flex:none}
 .th img{width:100%;height:100%;object-fit:cover;display:block}
 .thx{position:absolute;top:4px;left:4px;width:22px;height:22px;border-radius:50%;background:#000000A0;color:#fff;display:flex;align-items:center;justify-content:center}
 .pastebox{padding:0 16px 14px}
+.scanst{padding:12px 16px 14px;font-size:15px;color:var(--ink2);line-height:1.4;border-top:.5px solid var(--sep)}
+.scanst b{color:var(--ink);font-weight:600}
+.scanst pre{white-space:pre-wrap;font:13px/1.4 var(--txt);color:var(--muted);background:var(--fill);border-radius:10px;padding:10px;margin:8px 0 0;max-height:220px;overflow:auto;direction:rtl;unicode-bidi:plaintext}
+.scanst .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--fill2);border-top-color:var(--tint);border-radius:50%;vertical-align:-2px;margin-left:8px;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.f.auto input,.f.auto textarea{background:color-mix(in srgb,var(--tint) 12%,transparent);border-radius:8px;padding-inline:8px}
 .pastebox textarea{width:100%;min-height:120px;border:0;border-radius:10px;background:var(--fill);font:inherit;color:var(--ink);padding:10px;outline:none;resize:none;margin-bottom:10px}
 .rmb{width:22px;height:22px;border-radius:50%;background:var(--down);color:#fff;display:flex;align-items:center;justify-content:center;justify-self:center}
 
@@ -331,11 +341,13 @@ svg{flex:none}
 <div id="cover"></div>
 <input type="file" id="fcam" accept="image/*" capture="environment" hidden>
 <input type="file" id="fgal" accept="image/*" multiple hidden>
+<input type="file" id="fscam" accept="image/*" capture="environment" hidden>
+<input type="file" id="fsgal" accept="image/*" hidden>
 <input type="file" id="frestore" accept=".json,application/json" hidden>
 
 <script>
 'use strict';
-const VERSION = '1.1.0';
+const VERSION = '1.3.0';
 const KEY = 'coupontracker.v1';
 const ITER = 250000;
 const $ = (s, r = document) => r.querySelector(s);
@@ -639,7 +651,7 @@ const C128 = (() => {
     for (let i = 0; i < w.length; i++) { const k = +w[i]; if (i % 2 === 0) d += `M${x} 0h${k}v1h-${k}z`; x += k; }
     return `<svg viewBox="0 0 ${x + q} 1" preserveAspectRatio="none" shape-rendering="crispEdges"><rect width="100%" height="1" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
   }
-  return { ok, svg, widths };
+  return { ok, svg, widths, P };
 })();
 
 /* ======================= UI primitives ======================= */
@@ -791,6 +803,7 @@ const Pager = {
       const dx = t.clientX - g.x0, dy = t.clientY - g.y0;
       if (!g.axis) {
         if (Math.hypot(dx, dy) < 8) return;
+        if (Math.abs(dx) > Math.abs(dy) * 1.2 && e.target.closest('.wallet')) { g = null; return; }
         if (Math.abs(dx) > Math.abs(dy) * 1.2 && !e.target.closest('.seg,.hero,.chips')) { g.axis = 'x'; g.x0 = t.clientX; this.mv.begin(); }
         else if (dy > 0 && g.pull && g.sc.scrollTop <= 0 && !Pull.busy) { g.axis = 'pull'; g.y0 = t.clientY; Pull.begin(); }
         else { g = null; return; }
@@ -906,8 +919,11 @@ function walletCard(v) { return v.type !== 'coupon' && v.valKind !== 'item' ? (c
 function isWallet(v) { return v.type !== 'coupon' && v.valKind !== 'item' && (v.kind === 'multi' || !!walletCard(v)); }
 function walletColor(v) { const c = walletCard(v); if (c && WALLET_C[c.id]) return WALLET_C[c.id]; let h = 0; for (const ch of v.name || '') h = (h * 31 + ch.charCodeAt(0)) | 0; return WALLET_P[Math.abs(h) % WALLET_P.length]; }
 function walletHTML(items) {
-  // סדר ארנק: הכרטיס הקדמי (התחתון, שמוצג במלואו) הוא זה שהתוקף שלו הכי קרוב
-  return `<div class="wallet">${items.slice().reverse().map(({ v, st, m }) => {
+  // הכרטיס הקדמי (האחרון ב-DOM, מוצג במלואו): ברירת המחדל היא זה שהתוקף שלו הכי קרוב; דפדוף/הקשה מחליפים אותו
+  Wallet.items = items; const f = Wallet.order();
+  const seq = items.filter(x => x.v.id !== f).reverse().concat(items.filter(x => x.v.id === f));
+  const dots = items.length > 1 ? `<div class="wdots" aria-hidden="true">${items.map(x => `<i class="${x.v.id === f ? 'on' : ''}"></i>`).join('')}</div>` : '';
+  return `<div class="wwrap"><div class="wallet" aria-label="${items.length === 1 ? 'כרטיס אחד' : `${N(items.length)} כרטיסים`}">${seq.map(({ v, st, m }) => {
     const dl = daysLeft(v.exp), soon = dl <= 30;
     let sub;
     if (m && m.list) sub = `מתקבל ב־${m.list.slice(0, 2).map(x => esc(mainName(x))).join(', ')}${m.list.length > 2 ? ` ועוד ${N(m.list.length - 2)}` : ''}`;
@@ -917,8 +933,68 @@ function walletHTML(items) {
     const n = v.stores.length, val = v.bal != null ? esc(fmtMoney(v.bal)) : '—';
     const pct = v.orig && v.bal != null ? clamp(v.bal / v.orig, 0, 1) * 100 : null;
     return `<button class="wcard" style="--wc:${walletColor(v)}" data-id="${esc(v.id)}"><div class="wt"><span class="wn rt">${esc(v.name)}</span>${soon ? `<span class="wp">${N(dl < 0 ? 0 : dl)} ימים</span>` : ''}<span class="wv">${val}</span></div><div class="wb"><div class="wbig">${val}</div>${pct != null && pct < 100 ? `<div class="wbar"><i style="width:${pct.toFixed(1)}%"></i></div>` : ''}<div class="ws"><span class="rs">${sub}</span><span>${n ? `${N(n)} חנויות` : ''}</span></div></div></button>`;
-  }).join('')}</div>`;
+  }).join('')}</div>${dots}</div>`;
 }
+/* דפדוף בכרטיסים בסגנון Apple Wallet: הקשה על כרטיס מאחור מביאה אותו קדימה, החלקה לצדדים עוברת לכרטיס הבא/הקודם.
+   כל המעברים הם FLIP על קפיץ אחד, עם העברת מהירות מהאצבע. */
+const Wallet = {
+  front: null, items: [], key: '', sp: null, g: null, suppress: 0,
+  order() { if (!this.items.some(x => x.v.id === this.front)) this.front = this.items[0]?.v.id ?? null; return this.front; },
+  idx() { return this.items.findIndex(x => x.v.id === this.front); },
+  rects() { const m = new Map(); $$('#list .wcard').forEach(c => { const r = c.getBoundingClientRect(); m.set(c.dataset.id, [r.left, r.top]); }); return m; },
+  setFront(id, vx) {
+    if (id === this.front || !$('#list .wwrap')) return;
+    if (this.sp?.active) this.sp.to(0, { instant: true });
+    const before = this.rects(), oldF = this.front;
+    this.front = id; $('#list .wwrap').outerHTML = walletHTML(this.items);
+    const d = [];
+    for (const c of $$('#list .wcard')) { const b = before.get(c.dataset.id); if (!b) continue; const r = c.getBoundingClientRect(); const dx = b[0] - r.left, dy = b[1] - r.top; if (Math.abs(dx) > .5 || Math.abs(dy) > .5) d.push([c, dx, dy]); }
+    if (!d.length) return;
+    const apply = p => { for (const [c, dx, dy] of d) c.style.transform = Math.abs(p) > 1e-3 ? `translate3d(${(dx * p).toFixed(2)}px,${(dy * p).toFixed(2)}px,0)` : ''; };
+    const od = d.find(x => x[0].dataset.id === oldF);
+    const v = vx && od && Math.abs(od[1]) > 4 ? clamp(vx / od[1], -10, 10) : 0;
+    const mv = mover(d.map(x => x[0]));
+    apply(1);
+    this.sp = new Spring({ value: 1, response: .5, scale: 1, onStart: () => mv.begin(), onUpdate: apply, onRest: () => { apply(0); mv.end(); } });
+    this.sp.to(0, { v });
+  },
+  init() {
+    const list = $('#list');
+    list.addEventListener('touchstart', e => {
+      const w = e.target.closest('.wallet');
+      if (!w || e.touches.length > 1 || this.items.length < 1) { this.g = null; return; }
+      if (this.sp?.active) this.sp.to(0, { instant: true });
+      const t = e.touches[0]; this.g = { x0: t.clientX, y0: t.clientY, axis: null, x: 0, vt: new VT(), f: w.lastElementChild };
+      this.g.vt.add(t.clientX, t.clientY, e.timeStamp);
+    }, { passive: true });
+    list.addEventListener('touchmove', e => {
+      const g = this.g; if (!g) return; const t = e.touches[0]; g.vt.add(t.clientX, t.clientY, e.timeStamp);
+      const dx = t.clientX - g.x0, dy = t.clientY - g.y0;
+      if (!g.axis) {
+        if (Math.hypot(dx, dy) < 8) return;
+        if (Math.abs(dx) > Math.abs(dy) * 1.2) { g.axis = 'x'; g.x0 = t.clientX; g.mv = mover([g.f]); g.mv.begin(); }
+        else { this.g = null; return; }
+      }
+      e.preventDefault();
+      let x = t.clientX - g.x0; const ni = this.idx() + (x > 0 ? 1 : -1);
+      if (ni < 0 || ni >= this.items.length) x = rubber(x, 90);
+      g.x = x; g.f.style.transform = `translate3d(${x.toFixed(2)}px,0,0)`;
+    }, { passive: false });
+    const end = (e, cancel) => {
+      const g = this.g; this.g = null; if (!g || g.axis !== 'x') return;
+      this.suppress = performance.now() + 350; g.mv.end();
+      const vx = g.vt.get().x, x = g.x;
+      const dir = cancel ? 0 : Math.abs(vx) > 400 ? Math.sign(vx) : Math.abs(x) > W * .22 ? Math.sign(x) : 0;
+      const ni = this.idx() + dir;
+      if (dir && dir === Math.sign(x) && ni >= 0 && ni < this.items.length) return this.setFront(this.items[ni].v.id, vx);
+      const f = g.f, mv = mover([f]);
+      this.sp = new Spring({ value: x, response: .4, scale: 100, onStart: () => mv.begin(), onUpdate: p => { f.style.transform = Math.abs(p) > .05 ? `translate3d(${p.toFixed(2)}px,0,0)` : ''; }, onRest: () => { f.style.transform = ''; mv.end(); } });
+      this.sp.to(0, { v: vx });
+    };
+    list.addEventListener('touchend', e => end(e, false));
+    list.addEventListener('touchcancel', e => end(e, true));
+  }
+};
 function rowHTML({ v, st, m }) {
   const dl = daysLeft(v.exp), soon = st === 'active' && dl <= 30;
   let sub;
@@ -935,6 +1011,7 @@ function rowHTML({ v, st, m }) {
 }
 function renderList() {
   const el = $('#list'); const qRaw = $('#q').value; const q = norm(qRaw);
+  { const k = q + '|' + (List.cat || ''); if (k !== Wallet.key) { Wallet.key = k; Wallet.front = null; } }
   const vs = Store.data.vouchers;
   if (!vs.length) {
     el.innerHTML = `<div class="panel empty"><b>אין עדיין שוברים</b>שוברים, תווי קנייה וכרטיסי מתנה — עם קוד, יתרה ותוקף, שמורים רק במכשיר הזה.<button class="btn pri" id="emptyadd">הוספת שובר</button></div>`;
@@ -1497,6 +1574,656 @@ function catChips(counts, active, attr) {
 }
 
 /* ======================= editor ======================= */
+/* ======================= זיהוי ברקוד/QR מתמונה =======================
+   מימוש עצמי, בלי ספריות (Safari ב-iOS לא חושף BarcodeDetector).
+   QR: בינאריזציה מקומית → איתור שלושת ריבועי המיקום → טרנספורמציית פרספקטיבה →
+   קריאת פורמט/גרסה → הסרת מסכה → פענוח Reed-Solomon → פענוח מקטעים.
+   1D: Code 128 ו-EAN-13 בסריקת שורות (ובסיבוב 90°). */
+const Scan = (() => {
+  /* ---------- תמונה ---------- */
+  function lum(d, w, h) {
+    const L = new Uint8Array(w * h);
+    for (let i = 0, j = 0; i < L.length; i++, j += 4) L[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
+    return L;
+  }
+  // בינאריזציה היברידית (סף מקומי לפי בלוקים של 8×8, ממוצע 5×5 בלוקים)
+  function binarize(L, w, h) {
+    const B = new Uint8Array(w * h);
+    if (w < 40 || h < 40) { let s = 0; for (const v of L) s += v; const t = s / L.length; for (let i = 0; i < L.length; i++) B[i] = L[i] < t ? 1 : 0; return B; }
+    const bs = 8, sw = Math.ceil(w / bs), sh = Math.ceil(h / bs), avg = new Float32Array(sw * sh);
+    for (let by = 0; by < sh; by++) for (let bx = 0; bx < sw; bx++) {
+      const y0 = Math.min(by * bs, h - bs), x0 = Math.min(bx * bs, w - bs);
+      let sum = 0, mn = 255, mx = 0;
+      for (let y = y0; y < y0 + bs; y++) for (let x = x0, o = y * w + x0; x < x0 + bs; x++, o++) { const p = L[o]; sum += p; if (p < mn) mn = p; if (p > mx) mx = p; }
+      let a = sum / 64;
+      if (mx - mn <= 24) {
+        a = mn / 2;
+        if (by > 0 && bx > 0) { const n = (avg[(by - 1) * sw + bx] + 2 * avg[by * sw + bx - 1] + avg[(by - 1) * sw + bx - 1]) / 4; if (mn < n) a = n; }
+      }
+      avg[by * sw + bx] = a;
+    }
+    for (let by = 0; by < sh; by++) for (let bx = 0; bx < sw; bx++) {
+      const cy = Math.min(Math.max(by, 2), sh - 3), cx = Math.min(Math.max(bx, 2), sw - 3);
+      let s = 0;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const yy = Math.min(Math.max(cy + dy, 0), sh - 1), xx = Math.min(Math.max(cx + dx, 0), sw - 1); s += avg[yy * sw + xx]; }
+      const t = s / 25, y0 = Math.min(by * bs, h - bs), x0 = Math.min(bx * bs, w - bs);
+      for (let y = y0; y < y0 + bs; y++) for (let x = x0, o = y * w + x0; x < x0 + bs; x++, o++) B[o] = L[o] <= t ? 1 : 0;
+    }
+    return B;
+  }
+
+  /* ---------- QR: איתור ---------- */
+  function finders(B, w, h) {
+    const at = (x, y) => B[y * w + x] === 1;
+    const centers = [];
+    const ok5 = s => { let t = 0; for (const c of s) { if (!c) return false; t += c; } if (t < 7) return false; const m = t / 7, v = m / 2; return Math.abs(m - s[0]) < v && Math.abs(m - s[1]) < v && Math.abs(3 * m - s[2]) < 3 * v && Math.abs(m - s[3]) < v && Math.abs(m - s[4]) < v; };
+    const end = (s, e) => e - s[4] - s[3] - s[2] / 2;
+    function cross(cx, cy, max, tot, vert) {
+      const s = [0, 0, 0, 0, 0], lim = vert ? h : w, get = k => vert ? at(cx, k) : at(k, cy);
+      let i = vert ? cy : cx;
+      while (i >= 0 && get(i)) { s[2]++; i--; } if (i < 0) return NaN;
+      while (i >= 0 && !get(i) && s[1] <= max) { s[1]++; i--; } if (i < 0 || s[1] > max) return NaN;
+      while (i >= 0 && get(i) && s[0] <= max) { s[0]++; i--; } if (s[0] > max) return NaN;
+      i = (vert ? cy : cx) + 1;
+      while (i < lim && get(i)) { s[2]++; i++; } if (i === lim) return NaN;
+      while (i < lim && !get(i) && s[3] < max) { s[3]++; i++; } if (i === lim || s[3] >= max) return NaN;
+      while (i < lim && get(i) && s[4] < max) { s[4]++; i++; } if (s[4] >= max) return NaN;
+      const t = s[0] + s[1] + s[2] + s[3] + s[4];
+      if (5 * Math.abs(t - tot) >= 2 * tot) return NaN;
+      return ok5(s) ? end(s, i) : NaN;
+    }
+    function handle(s, y, x) {
+      const tot = s[0] + s[1] + s[2] + s[3] + s[4];
+      let cx = end(s, x);
+      const cy = cross(Math.floor(cx), y, s[2], tot, true); if (Number.isNaN(cy)) return false;
+      cx = cross(Math.floor(cx), Math.floor(cy), s[2], tot, false); if (Number.isNaN(cx)) return false;
+      const ms = tot / 7;
+      for (const c of centers) {
+        if (Math.abs(cy - c.y) <= ms && Math.abs(cx - c.x) <= ms) {
+          const d = Math.abs(ms - c.ms); if (d <= 1 || d <= c.ms) {
+            const n = c.n + 1; c.x = (c.n * c.x + cx) / n; c.y = (c.n * c.y + cy) / n; c.ms = (c.n * c.ms + ms) / n; c.n = n; return true;
+          }
+        }
+      }
+      centers.push({ x: cx, y: cy, ms, n: 1 }); return true;
+    }
+    const skip = Math.max(1, Math.round(h / 450));
+    for (let y = skip - 1; y < h; y += skip) {
+      const s = [0, 0, 0, 0, 0]; let st = 0;
+      for (let x = 0; x < w; x++) {
+        if (at(x, y)) { if (st & 1) st++; s[st]++; }
+        else if (!(st & 1)) {
+          if (st === 4) {
+            if (ok5(s) && handle(s, y, x)) { s.fill(0); st = 0; }
+            else { s[0] = s[2]; s[1] = s[3]; s[2] = s[4]; s[3] = 1; s[4] = 0; st = 3; }
+          } else { st++; s[st]++; }
+        } else s[st]++;
+      }
+      if (ok5(s)) handle(s, y, w);
+    }
+    return centers;
+  }
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  // בחירת שלשות סבירות (משולש ישר-זווית שווה-שוקיים בקירוב, גודל מודול דומה)
+  function triples(cs) {
+    const big = cs.filter(p => p.ms >= 1.8), c = big.filter(p => p.n >= 2).sort((a, b) => b.n - a.n || b.ms - a.ms).slice(0, 10);
+    const pool = c.length >= 3 ? c : big.slice().sort((a, b) => b.n - a.n || b.ms - a.ms).slice(0, 10);
+    const out = [];
+    for (let i = 0; i < pool.length; i++) for (let j = i + 1; j < pool.length; j++) for (let k = j + 1; k < pool.length; k++) {
+      const P = [pool[i], pool[j], pool[k]], ms = P.map(p => p.ms);
+      if (Math.max(...ms) / Math.min(...ms) > 1.5) continue;
+      const d = [[dist(P[1], P[2]), 0], [dist(P[0], P[2]), 1], [dist(P[0], P[1]), 2]].sort((a, b) => a[0] - b[0]);
+      const [a, b, hyp] = d; if (a[0] < 7 * Math.min(...ms)) continue;
+      const legs = b[0] / a[0], right = Math.abs(hyp[0] * hyp[0] - a[0] * a[0] - b[0] * b[0]) / (hyp[0] * hyp[0]);
+      if (legs > 1.6 || right > 0.35) continue;
+      let tl = P[hyp[1]], A = P[(hyp[1] + 1) % 3], C = P[(hyp[1] + 2) % 3];
+      if ((C.x - tl.x) * (A.y - tl.y) - (C.y - tl.y) * (A.x - tl.x) < 0) [A, C] = [C, A];
+      out.push({ bl: A, tl, tr: C, score: (legs - 1) + right + (Math.max(...ms) / Math.min(...ms) - 1) });
+    }
+    return out.sort((a, b) => a.score - b.score).slice(0, 4);
+  }
+  /* ---------- פרספקטיבה ---------- */
+  function times(p, q) {
+    // p,q במבנה [a11,a21,a31,a12,a22,a32,a13,a23,a33] (עמודות) כמו ב-ZXing
+    const [a11, a21, a31, a12, a22, a32, a13, a23, a33] = p, [b11, b21, b31, b12, b22, b32, b13, b23, b33] = q;
+    return [a11 * b11 + a21 * b12 + a31 * b13, a11 * b21 + a21 * b22 + a31 * b23, a11 * b31 + a21 * b32 + a31 * b33,
+      a12 * b11 + a22 * b12 + a32 * b13, a12 * b21 + a22 * b22 + a32 * b23, a12 * b31 + a22 * b32 + a32 * b33,
+      a13 * b11 + a23 * b12 + a33 * b13, a13 * b21 + a23 * b22 + a33 * b23, a13 * b31 + a23 * b32 + a33 * b33];
+  }
+  // ZXing PerspectiveTransform עם סדר [a11,a21,a31,a12,a22,a32,a13,a23,a33]
+  function zsq2quad(x0, y0, x1, y1, x2, y2, x3, y3) {
+    const dx3 = x0 - x1 + x2 - x3, dy3 = y0 - y1 + y2 - y3;
+    if (dx3 === 0 && dy3 === 0) return [x1 - x0, x2 - x1, x0, y1 - y0, y2 - y1, y0, 0, 0, 1];
+    const dx1 = x1 - x2, dx2 = x3 - x2, dy1 = y1 - y2, dy2 = y3 - y2, den = dx1 * dy2 - dx2 * dy1;
+    const a13 = (dx3 * dy2 - dx2 * dy3) / den, a23 = (dx1 * dy3 - dx3 * dy1) / den;
+    return [x1 - x0 + a13 * x1, x3 - x0 + a23 * x3, x0, y1 - y0 + a13 * y1, y3 - y0 + a23 * y3, y0, a13, a23, 1];
+  }
+  function zadj(t) {
+    const [a11, a21, a31, a12, a22, a32, a13, a23, a33] = t;
+    return [a22 * a33 - a23 * a32, a23 * a31 - a21 * a33, a21 * a32 - a22 * a31,
+      a13 * a32 - a12 * a33, a11 * a33 - a13 * a31, a12 * a31 - a11 * a32,
+      a12 * a23 - a13 * a22, a13 * a21 - a11 * a23, a11 * a22 - a12 * a21];
+  }
+  function quad2quad(src, dst) {
+    const q2s = zadj(zsq2quad(...src)), s2q = zsq2quad(...dst);
+    return times(s2q, q2s);
+  }
+  function apply(t, x, y) {
+    const [a11, a21, a31, a12, a22, a32, a13, a23, a33] = t;
+    const den = a13 * x + a23 * y + a33;
+    return [(a11 * x + a21 * y + a31) / den, (a12 * x + a22 * y + a32) / den];
+  }
+  // חיפוש ריבוע יישור קטן סביב מיקום משוער
+  function alignment(B, w, h, ex, ey, ms, allow) {
+    const r = Math.round(allow * ms), m = Math.max(1, Math.round(ms));
+    const at = (x, y) => { x = Math.round(x); y = Math.round(y); return x >= 0 && y >= 0 && x < w && y < h ? B[y * w + x] : -1; };
+    let best = null, bs = -1;
+    const step = Math.max(1, Math.floor(ms / 3));
+    for (let y = Math.round(ey - r); y <= ey + r; y += step) for (let x = Math.round(ex - r); x <= ex + r; x += step) {
+      if (at(x, y) !== 1) continue;
+      let s = 0;
+      for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4, c = Math.cos(a), sn = Math.sin(a); if (at(x + c * ms, y + sn * ms) === 0) s++; if (at(x + c * 2 * ms, y + sn * 2 * ms) === 1) s++; }
+      if (s < 13) continue;
+      const sc = s * 10 - Math.hypot(x - ex, y - ey) / ms;
+      if (sc > bs) { bs = sc; best = { x, y }; }
+    }
+    if (!best) return null;
+    // מירכוז לפי מרכז המסה של הנקודה השחורה
+    let sx = 0, sy = 0, n = 0;
+    for (let y = best.y - m; y <= best.y + m; y++) for (let x = best.x - m; x <= best.x + m; x++) if (at(x, y) === 1 && Math.hypot(x - best.x, y - best.y) <= m * 0.75) { sx += x; sy += y; n++; }
+    return n ? { x: sx / n, y: sy / n } : best;
+  }
+  // אורך רצף שחור-לבן-שחור מהמרכז לשני הכיוונים לאורך הקו P→Q = 7 מודולים
+  function runMs(B, w, h, P, Q) {
+    const L = dist(P, Q); if (!L) return 0; const ux = (Q.x - P.x) / L, uy = (Q.y - P.y) / L;
+    const half = sgn => {
+      let st = 0, k = 0; const lim = Math.min(L / 2, P.ms * 9);
+      for (; k < lim; k += 0.5) {
+        const x = Math.round(P.x + sgn * ux * k), y = Math.round(P.y + sgn * uy * k);
+        if (x < 0 || y < 0 || x >= w || y >= h) return -1;
+        const b = B[y * w + x];
+        if ((st === 0 || st === 2) && !b) st++; else if (st === 1 && b) st++;
+        if (st === 3) return k;
+      }
+      return -1;
+    };
+    const a = half(1), b = half(-1);
+    if (a < 0 || b < 0) return 0;
+    const r = (a + b) / 7; return r > P.ms * 0.4 && r < P.ms * 1.6 ? r : 0;
+  }
+  // דגימת בהירות (בילינארית) + סף אוטסו על ערכי המודולים – טוב לקודים קטנים/מטושטשים
+  function sampleLum(L, w, h, t, dim) {
+    const V = new Float32Array(dim * dim);
+    for (let y = 0; y < dim; y++) for (let x = 0; x < dim; x++) {
+      let [px, py] = apply(t, x + 0.5, y + 0.5); px -= 0.5; py -= 0.5;
+      if (px < -2 || py < -2 || px > w + 1 || py > h + 1) return null;
+      px = Math.min(Math.max(px, 0), w - 1.001); py = Math.min(Math.max(py, 0), h - 1.001);
+      const x0 = Math.floor(px), y0 = Math.floor(py), fx = px - x0, fy = py - y0, o = y0 * w + x0;
+      V[y * dim + x] = (L[o] * (1 - fx) + L[o + 1] * fx) * (1 - fy) + (L[o + w] * (1 - fx) + L[o + w + 1] * fx) * fy;
+    }
+    const hist = new Float64Array(256); for (const v of V) hist[v | 0]++;
+    let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
+    let sB = 0, wB = 0, best = 0, th = 128; const N = V.length;
+    for (let i = 0; i < 256; i++) { wB += hist[i]; if (!wB) continue; const wF = N - wB; if (!wF) break; sB += i * hist[i]; const mB = sB / wB, mF = (sum - sB) / wF, b = wB * wF * (mB - mF) ** 2; if (b > best) { best = b; th = i; } }
+    const M = new Uint8Array(dim * dim); for (let i = 0; i < M.length; i++) M[i] = V[i] <= th ? 1 : 0;
+    return M;
+  }
+  function sample(B, w, h, t, dim) {
+    const M = new Uint8Array(dim * dim); let bad = 0;
+    for (let y = 0; y < dim; y++) for (let x = 0; x < dim; x++) {
+      let [px, py] = apply(t, x + 0.5, y + 0.5); px = Math.floor(px); py = Math.floor(py);
+      if (px < -1 || py < -1 || px > w || py > h) { bad++; if (bad > dim) return null; }
+      px = Math.min(Math.max(px, 0), w - 1); py = Math.min(Math.max(py, 0), h - 1);
+      M[y * dim + x] = B[py * w + px];
+    }
+    return M;
+  }
+
+  /* ---------- QR: פענוח ---------- */
+  const EC = '7,1,19,0,0,10,1,16,0,0,13,1,13,0,0,17,1,9,0,0,10,1,34,0,0,16,1,28,0,0,22,1,22,0,0,28,1,16,0,0,15,1,55,0,0,26,1,44,0,0,18,2,17,0,0,22,2,13,0,0,20,1,80,0,0,18,2,32,0,0,26,2,24,0,0,16,4,9,0,0,26,1,108,0,0,24,2,43,0,0,18,2,15,2,16,22,2,11,2,12,18,2,68,0,0,16,4,27,0,0,24,4,19,0,0,28,4,15,0,0,20,2,78,0,0,18,4,31,0,0,18,2,14,4,15,26,4,13,1,14,24,2,97,0,0,22,2,38,2,39,22,4,18,2,19,26,4,14,2,15,30,2,116,0,0,22,3,36,2,37,20,4,16,4,17,24,4,12,4,13,18,2,68,2,69,26,4,43,1,44,24,6,19,2,20,28,6,15,2,16,20,4,81,0,0,30,1,50,4,51,28,4,22,4,23,24,3,12,8,13,24,2,92,2,93,22,6,36,2,37,26,4,20,6,21,28,7,14,4,15,26,4,107,0,0,22,8,37,1,38,24,8,20,4,21,22,12,11,4,12,30,3,115,1,116,24,4,40,5,41,20,11,16,5,17,24,11,12,5,13,22,5,87,1,88,24,5,41,5,42,30,5,24,7,25,24,11,12,7,13,24,5,98,1,99,28,7,45,3,46,24,15,19,2,20,30,3,15,13,16,28,1,107,5,108,28,10,46,1,47,28,1,22,15,23,28,2,14,17,15,30,5,120,1,121,26,9,43,4,44,28,17,22,1,23,28,2,14,19,15,28,3,113,4,114,26,3,44,11,45,26,17,21,4,22,26,9,13,16,14,28,3,107,5,108,26,3,41,13,42,30,15,24,5,25,28,15,15,10,16,28,4,116,4,117,26,17,42,0,0,28,17,22,6,23,30,19,16,6,17,28,2,111,7,112,28,17,46,0,0,30,7,24,16,25,24,34,13,0,0,30,4,121,5,122,28,4,47,14,48,30,11,24,14,25,30,16,15,14,16,30,6,117,4,118,28,6,45,14,46,30,11,24,16,25,30,30,16,2,17,26,8,106,4,107,28,8,47,13,48,30,7,24,22,25,30,22,15,13,16,28,10,114,2,115,28,19,46,4,47,28,28,22,6,23,30,33,16,4,17,30,8,122,4,123,28,22,45,3,46,30,8,23,26,24,30,12,15,28,16,30,3,117,10,118,28,3,45,23,46,30,4,24,31,25,30,11,15,31,16,30,7,116,7,117,28,21,45,7,46,30,1,23,37,24,30,19,15,26,16,30,5,115,10,116,28,19,47,10,48,30,15,24,25,25,30,23,15,25,16,30,13,115,3,116,28,2,46,29,47,30,42,24,1,25,30,23,15,28,16,30,17,115,0,0,28,10,46,23,47,30,10,24,35,25,30,19,15,35,16,30,17,115,1,116,28,14,46,21,47,30,29,24,19,25,30,11,15,46,16,30,13,115,6,116,28,14,46,23,47,30,44,24,7,25,30,59,16,1,17,30,12,121,7,122,28,12,47,26,48,30,39,24,14,25,30,22,15,41,16,30,6,121,14,122,28,6,47,34,48,30,46,24,10,25,30,2,15,64,16,30,17,122,4,123,28,29,46,14,47,30,49,24,10,25,30,24,15,46,16,30,4,122,18,123,28,13,46,32,47,30,48,24,14,25,30,42,15,32,16,30,20,117,4,118,28,40,47,7,48,30,43,24,22,25,30,10,15,67,16,30,19,118,6,119,28,18,47,31,48,30,34,24,34,25,30,20,15,61,16'.split(',').map(Number); // [ec, n1, d1, n2, d2] × (L,M,Q,H) × 40
+  const LV = { 1: 0, 0: 1, 3: 2, 2: 3 };
+  function alignPos(ver) { const al = []; if (ver > 1) { const n = ver * 4 + 17, na = Math.floor(ver / 7) + 2; const step = ver === 32 ? 26 : Math.ceil((ver * 4 + 4) / (na * 2 - 2)) * 2; al.push(6); for (let pos = n - 7; al.length < na; pos -= step) al.splice(1, 0, pos); } return al; }
+  function funcMask(ver) {
+    const n = ver * 4 + 17, F = new Uint8Array(n * n);
+    const reg = (l, t, ww, hh) => { for (let y = t; y < t + hh; y++) for (let x = l; x < l + ww; x++) F[y * n + x] = 1; };
+    reg(0, 0, 9, 9); reg(n - 8, 0, 8, 9); reg(0, n - 8, 9, 8);
+    const al = alignPos(ver);
+    al.forEach((a, i) => al.forEach((b, j) => { if ((i === 0 && j === 0) || (i === 0 && j === al.length - 1) || (i === al.length - 1 && j === 0)) return; reg(a - 2, b - 2, 5, 5); }));
+    reg(6, 9, 1, n - 17); reg(9, 6, n - 17, 1);
+    if (ver > 6) { reg(n - 11, 0, 3, 6); reg(0, n - 11, 6, 3); }
+    return F;
+  }
+  const bch = (v, poly, deg) => { let r = v << deg; for (let i = 31 - Math.clz32(r); i >= deg; i--) if ((r >>> i) & 1) r ^= poly << (i - deg); return r; };
+  const FMT = []; for (let d = 0; d < 32; d++) FMT.push([(((d << 10) | bch(d, 0x537, 10)) ^ 0x5412) >>> 0, d]);
+  const VER = []; for (let v = 7; v <= 40; v++) VER.push([(v << 12) | bch(v, 0x1F25, 12), v]);
+  const pop = x => { let c = 0; while (x) { c += x & 1; x >>>= 1; } return c; };
+  const MASK = [(i, j) => ((i + j) & 1) === 0, i => (i & 1) === 0, (i, j) => j % 3 === 0, (i, j) => (i + j) % 3 === 0, (i, j) => ((Math.floor(i / 2) + Math.floor(j / 3)) & 1) === 0, (i, j) => ((i * j) & 1) + ((i * j) % 3) === 0, (i, j) => ((((i * j) & 1) + ((i * j) % 3)) & 1) === 0, (i, j) => ((((i + j) & 1) + ((i * j) % 3)) & 1) === 0];
+
+  // Reed-Solomon מעל GF(256), פולינום 0x11D, שורשי מחולל α^0..α^(n-1)
+  const EXP = new Uint8Array(512), LOG = new Uint8Array(256);
+  { let x = 1; for (let i = 0; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 256) x ^= 0x11D; } for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255]; }
+  const gm = (a, b) => a && b ? EXP[LOG[a] + LOG[b]] : 0;
+  const gdiv = (a, b) => a ? EXP[(LOG[a] + 255 - LOG[b]) % 255] : 0;
+  const gpow = (a, p) => EXP[((LOG[a] * p) % 255 + 255) % 255];
+  const pev = (p, x) => { let y = p[0]; for (let i = 1; i < p.length; i++) y = gm(y, x) ^ p[i]; return y; };
+  const pscale = (p, x) => p.map(c => gm(c, x));
+  const padd = (p, q) => { const r = new Array(Math.max(p.length, q.length)).fill(0); for (let i = 0; i < p.length; i++) r[i + r.length - p.length] = p[i]; for (let i = 0; i < q.length; i++) r[i + r.length - q.length] ^= q[i]; return r; };
+  const pmul = (p, q) => { const r = new Array(p.length + q.length - 1).fill(0); for (let j = 0; j < q.length; j++) for (let i = 0; i < p.length; i++) r[i + j] ^= gm(p[i], q[j]); return r; };
+  function rsFix(msg, nsym) {
+    const synd = [0]; let bad = false;
+    for (let i = 0; i < nsym; i++) { const s = pev(msg, EXP[i]); synd.push(s); if (s) bad = true; }
+    if (!bad) return msg;
+    // Berlekamp-Massey
+    let el = [1], ol = [1];
+    for (let i = 0; i < nsym; i++) {
+      const K = i + 1; let delta = synd[K];
+      for (let j = 1; j < el.length; j++) delta ^= gm(el[el.length - 1 - j], synd[K - j]);
+      ol = ol.concat([0]);
+      if (delta) {
+        if (ol.length > el.length) { const nl = pscale(ol, delta); ol = pscale(el, gdiv(1, delta)); el = nl; }
+        el = padd(el, pscale(ol, delta));
+      }
+    }
+    while (el.length && el[0] === 0) el.shift();
+    const errs = el.length - 1; if (errs * 2 > nsym) return null;
+    const rev = el.slice().reverse(), pos = [];
+    for (let i = 0; i < msg.length; i++) if (pev(rev, gpow(2, i)) === 0) pos.push(msg.length - 1 - i);
+    if (pos.length !== errs) return null;
+    // Forney
+    const cpos = pos.map(p => msg.length - 1 - p);
+    let eloc = [1]; for (const c of cpos) eloc = pmul(eloc, padd([1], [gpow(2, c), 0]));
+    const sr = synd.slice().reverse();
+    // err_eval = (synd_rev * eloc) mod x^(nsym+1)
+    const prod = pmul(sr, eloc);
+    const evx = prod.slice(Math.max(0, prod.length - eloc.length));
+    const X = cpos.map(c => gpow(2, c));
+    const out = msg.slice();
+    for (let i = 0; i < X.length; i++) {
+      const xi = X[i], xinv = gdiv(1, xi);
+      let lp = 1; for (let j = 0; j < X.length; j++) if (j !== i) lp = gm(lp, 1 ^ gm(xinv, X[j]));
+      if (!lp) return null;
+      const y = gm(xi, pev(evx, xinv));
+      out[pos[i]] ^= gdiv(y, lp);
+    }
+    for (let i = 0; i < nsym; i++) if (pev(out, EXP[i])) return null;
+    return out;
+  }
+  const ALNUM = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:';
+  function bytesToText(b) { try { return new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(b)); } catch { return String.fromCharCode(...b); } }
+  function parseBits(data, ver) {
+    let p = 0; const n = data.length * 8;
+    const rd = k => { let v = 0; for (let i = 0; i < k; i++, p++) { if (p >= n) throw 0; v = (v << 1) | ((data[p >>> 3] >>> (7 - (p & 7))) & 1); } return v; };
+    const sz = ver <= 9 ? 0 : ver <= 26 ? 1 : 2;
+    let out = '', bytes = [];
+    const flush = () => { if (bytes.length) { out += bytesToText(bytes); bytes = []; } };
+    try {
+      for (;;) {
+        if (n - p < 4) break;
+        const mode = rd(4);
+        if (mode === 0) break;
+        if (mode === 1) { flush(); let c = rd([10, 12, 14][sz]); while (c >= 3) { out += String(rd(10)).padStart(3, '0'); c -= 3; } if (c === 2) out += String(rd(7)).padStart(2, '0'); else if (c === 1) out += String(rd(4)); }
+        else if (mode === 2) { flush(); let c = rd([9, 11, 13][sz]); while (c >= 2) { const v = rd(11); out += ALNUM[Math.floor(v / 45)] + ALNUM[v % 45]; c -= 2; } if (c) out += ALNUM[rd(6)]; }
+        else if (mode === 4) { const c = rd([8, 16, 16][sz]); for (let i = 0; i < c; i++) bytes.push(rd(8)); }
+        else if (mode === 7) { const f = rd(8); if ((f & 0x80) === 0) {} else if ((f & 0xC0) === 0x80) rd(8); else rd(16); }
+        else if (mode === 3) rd(16);
+        else if (mode === 5 || mode === 9) { if (mode === 9) rd(8); }
+        else if (mode === 8) { flush(); const c = rd([8, 10, 12][sz]); for (let i = 0; i < c; i++) rd(13); out += '?'.repeat(c); }
+        else break;
+      }
+    } catch { /* קיצוץ – מחזירים מה שנאסף */ }
+    flush();
+    return out;
+  }
+  function decodeMatrix(M, dim) {
+    const get = (x, y) => M[y * dim + x];
+    let f1 = 0, f2 = 0;
+    const c1 = (x, y) => { f1 = (f1 << 1) | get(x, y); }, c2 = (x, y) => { f2 = (f2 << 1) | get(x, y); };
+    for (let i = 0; i < 6; i++) c1(i, 8); c1(7, 8); c1(8, 8); c1(8, 7); for (let j = 5; j >= 0; j--) c1(8, j);
+    for (let j = dim - 1; j >= dim - 7; j--) c2(8, j); for (let i = dim - 8; i < dim; i++) c2(i, 8);
+    let fmt = null, bd = 99;
+    for (const [code, d] of FMT) { const a = pop(f1 ^ code), b = pop(f2 ^ code); if (a < bd) { bd = a; fmt = d; } if (b < bd) { bd = b; fmt = d; } }
+    if (bd > 3) return null;
+    const lv = LV[fmt >> 3], mask = fmt & 7;
+    let ver = (dim - 17) / 4;
+    if (ver >= 7) {
+      let v1 = 0, v2 = 0;
+      for (let j = 5; j >= 0; j--) for (let i = dim - 9; i >= dim - 11; i--) v1 = (v1 << 1) | get(i, j);
+      for (let i = 5; i >= 0; i--) for (let j = dim - 9; j >= dim - 11; j--) v2 = (v2 << 1) | get(i, j);
+      let bv = 99, best = 0; for (const [code, v] of VER) { const a = Math.min(pop(v1 ^ code), pop(v2 ^ code)); if (a < bv) { bv = a; best = v; } }
+      if (bv <= 3 && best * 4 + 17 === dim) ver = best;
+    }
+    if (!(ver >= 1 && ver <= 40 && Number.isInteger(ver))) return null;
+    const F = funcMask(ver), U = M.slice();
+    for (let i = 0; i < dim; i++) for (let j = 0; j < dim; j++) if (MASK[mask](i, j)) U[i * dim + j] ^= 1;
+    const raw = []; let cur = 0, nb = 0, up = true;
+    for (let j = dim - 1; j > 0; j -= 2) {
+      if (j === 6) j--;
+      for (let c = 0; c < dim; c++) {
+        const i = up ? dim - 1 - c : c;
+        for (let col = 0; col < 2; col++) if (!F[i * dim + j - col]) { cur = (cur << 1) | U[i * dim + j - col]; if (++nb === 8) { raw.push(cur); cur = 0; nb = 0; } }
+      }
+      up = !up;
+    }
+    const o = ((ver - 1) * 4 + lv) * 5, ec = EC[o], groups = [[EC[o + 1], EC[o + 2]], [EC[o + 3], EC[o + 4]]];
+    const blocks = []; for (const [cnt, dc] of groups) for (let k = 0; k < cnt; k++) blocks.push({ dc, cw: new Array(dc + ec) });
+    const total = blocks.reduce((s, b) => s + b.cw.length, 0); if (raw.length < total) return null;
+    const shortT = blocks[0].cw.length; let longAt = blocks.length - 1;
+    while (longAt >= 0 && blocks[longAt].cw.length !== shortT) longAt--; longAt++;
+    const shortD = shortT - ec; let r = 0;
+    for (let i = 0; i < shortD; i++) for (const b of blocks) b.cw[i] = raw[r++];
+    for (let j = longAt; j < blocks.length; j++) blocks[j].cw[shortD] = raw[r++];
+    const mx = blocks[0].cw.length;
+    for (let i = shortD; i < mx; i++) for (let j = 0; j < blocks.length; j++) blocks[j].cw[j < longAt ? i : i + 1] = raw[r++];
+    const data = [];
+    for (const b of blocks) { const fx = rsFix(b.cw, ec); if (!fx) return null; for (let i = 0; i < b.dc; i++) data.push(fx[i]); }
+    return parseBits(data, ver);
+  }
+  function tryM(M, dim) {
+    let s = decodeMatrix(M, dim);
+    if (s == null) { const T = new Uint8Array(dim * dim); for (let y = 0; y < dim; y++) for (let x = 0; x < dim; x++) T[x * dim + y] = M[y * dim + x]; s = decodeMatrix(T, dim); }
+    return s;
+  }
+  function qr(L, B, w, h) {
+    const cs = finders(B, w, h); if (cs.length < 3) return null;
+    for (const { tl, tr, bl } of triples(cs)) {
+      // גודל מודול לאורך הקו שבין המרכזים (לא לאורך שורה) – עמיד לסיבוב
+      const m1 = runMs(B, w, h, tl, tr), m2 = runMs(B, w, h, tl, bl), m3 = runMs(B, w, h, tr, tl), m4 = runMs(B, w, h, bl, tl);
+      const ok = [m1, m2, m3, m4].filter(x => x > 0), ms = ok.length ? ok.reduce((s, x) => s + x, 0) / ok.length : (tl.ms + tr.ms + bl.ms) / 3;
+      const base = (dist(tl, tr) + dist(tl, bl)) / 2 / ms + 7, k0 = Math.round((base - 21) / 4);
+      const dims = [k0, k0 + 1, k0 - 1].map(k => 21 + 4 * k).filter(d => d >= 21 && d <= 177);
+      for (const dim of dims) {
+        const brx = tr.x - tl.x + bl.x, bry = tr.y - tl.y + bl.y, d3 = dim - 3.5;
+        const tries = [];
+        if (dim > 21) {
+          const corr = 1 - 3 / (dim - 7), ex = tl.x + corr * (brx - tl.x), ey = tl.y + corr * (bry - tl.y);
+          for (const al of [4, 8, 16]) { const a = alignment(B, w, h, ex, ey, ms, al); if (a) { tries.push([d3 - 3, d3 - 3, a.x, a.y]); break; } }
+        }
+        tries.push([d3, d3, brx, bry]);
+        for (const [sx, sy, px, py] of tries) {
+          const t = quad2quad([3.5, 3.5, d3, 3.5, sx, sy, 3.5, d3], [tl.x, tl.y, tr.x, tr.y, px, py, bl.x, bl.y]);
+          for (const M of [sample(B, w, h, t, dim), sampleLum(L, w, h, t, dim)]) {
+            if (!M) continue;
+            const s = tryM(M, dim);
+            if (s != null && s !== '') return s;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /* ---------- 1D: Code 128 / EAN-13 ---------- */
+  const C128P = C128.P.map(p => p.split('').map(Number));
+  const EANL = ['3211', '2221', '2122', '1411', '1132', '1231', '1114', '1312', '1213', '3112'].map(p => p.split('').map(Number));
+  const EANG = EANL.map(p => p.slice().reverse());
+  const EANF = ['LLLLLL', 'LLGLGG', 'LLGGLG', 'LLGGGL', 'LGLLGG', 'LGGLLG', 'LGGGLL', 'LGLGLG', 'LGLGGL', 'LGGLGL'];
+  function bestOf(runs, i, pats, n, mod) {
+    let sum = 0; for (let k = 0; k < n; k++) sum += runs[i + k]; const m = sum / mod;
+    let best = -1, bd = 1e9;
+    for (let c = 0; c < pats.length; c++) { const p = pats[c]; let d = 0; for (let k = 0; k < n; k++) d += Math.abs(runs[i + k] / m - p[k]); if (d < bd) { bd = d; best = c; } }
+    return [best, bd, m];
+  }
+  function c128(runs) {
+    // runs[0] הוא תמיד פס (שחור); מתחילים רק מפס
+    for (let i = 1; i + 6 * 3 + 7 <= runs.length; i += 2) {
+      const [st, d, m] = bestOf(runs, i, C128P, 6, 11);
+      if (st < 103 || st > 105 || d > 1.2 || runs[i - 1] < m * 4) continue;
+      const codes = [st]; let j = i + 6, okStop = false;
+      while (j + 6 <= runs.length) {
+        const [c, dd] = bestOf(runs, j, C128P, 6, 11);
+        if (dd > 1.5) break;
+        if (c === 106) { okStop = true; break; }
+        if (c >= 103) break;
+        codes.push(c); j += 6;
+      }
+      if (!okStop || codes.length < 3) continue;
+      const chk = codes.pop(); let s = codes[0]; for (let k = 1; k < codes.length; k++) s += codes[k] * k;
+      if (s % 103 !== chk) continue;
+      let set = st === 103 ? 'A' : st === 104 ? 'B' : 'C', out = '', shift = false;
+      for (let k = 1; k < codes.length; k++) {
+        const c = codes[k], cs = shift ? (set === 'A' ? 'B' : 'A') : set; shift = false;
+        if (cs === 'C') { if (c < 100) out += String(c).padStart(2, '0'); else if (c === 100) set = 'B'; else if (c === 101) set = 'A'; }
+        else {
+          if (c < 96) out += cs === 'A' ? (c < 64 ? String.fromCharCode(c + 32) : String.fromCharCode(c - 64)) : String.fromCharCode(c + 32);
+          else if (c === 98) shift = true; else if (c === 99) set = 'C'; else if (c === 100 && cs === 'A') set = 'B'; else if (c === 101 && cs === 'B') set = 'A';
+        }
+      }
+      if (out.replace(/[\x00-\x1F]/g, '').length >= 3) return out.replace(/[\x00-\x1F]/g, '');
+    }
+    return null;
+  }
+  function ean13(runs) {
+    for (let i = 1; i + 59 <= runs.length; i += 2) {
+      const g = runs[i] + runs[i + 1] + runs[i + 2], m = g / 3;
+      if (runs[i - 1] < m * 5 || Math.abs(runs[i] - m) > m * .6 || Math.abs(runs[i + 1] - m) > m * .6 || Math.abs(runs[i + 2] - m) > m * .6) continue;
+      let j = i + 3, digits = '', par = '';
+      let ok = true;
+      for (let k = 0; k < 6; k++) { const [a, da] = bestOf(runs, j, EANL, 4, 7), [b, db] = bestOf(runs, j, EANG, 4, 7); if (Math.min(da, db) > 1.4) { ok = false; break; } if (da <= db) { digits += a; par += 'L'; } else { digits += b; par += 'G'; } j += 4; }
+      if (!ok) continue;
+      j += 5;
+      for (let k = 0; k < 6; k++) { const [a, da] = bestOf(runs, j, EANL, 4, 7); if (da > 1.4) { ok = false; break; } digits += a; j += 4; }
+      if (!ok) continue;
+      const f = EANF.indexOf(par); if (f < 0) continue;
+      const all = f + digits; let s = 0; for (let k = 0; k < 12; k++) s += +all[k] * (k % 2 ? 3 : 1);
+      if ((10 - s % 10) % 10 === +all[12]) return all;
+    }
+    return null;
+  }
+  function lineRuns(L, n, off, stride) {
+    // סף לפי חלון מקומי, מתחילים ונגמרים בלבן
+    const v = new Float32Array(n); for (let k = 0; k < n; k++) v[k] = L[off + k * stride];
+    const win = Math.max(16, Math.floor(n / 8)), runs = []; let cur = 0, len = 0;
+    let mn = 255, mx = 0; for (let k = 0; k < n; k++) { if (v[k] < mn) mn = v[k]; if (v[k] > mx) mx = v[k]; }
+    if (mx - mn < 40) return null;
+    for (let k = 0; k < n; k++) {
+      let a = 255, b = 0; for (let q = Math.max(0, k - win); q < Math.min(n, k + win); q += 2) { if (v[q] < a) a = v[q]; if (v[q] > b) b = v[q]; }
+      const t = b - a < 30 ? (mn + mx) / 2 : (a + b) / 2, d = v[k] < t ? 1 : 0;
+      if (k === 0) { cur = d; len = 1; continue; }
+      if (d === cur) len++; else { runs.push([cur, len]); cur = d; len = 1; }
+    }
+    runs.push([cur, len]);
+    if (runs[0][0] === 1) runs.unshift([0, 1]);
+    if (runs[runs.length - 1][0] === 1) runs.push([0, 1]);
+    // מחזירים מערך אורכים: לבן, שחור, לבן, ...  (אינדקס 0 = שוליים לבנים)
+    return runs.map(r => r[1]);
+  }
+  function linear(L, w, h) {
+    const tryRuns = r => { if (!r || r.length < 20) return null; for (const rr of [r, r.slice().reverse()]) { const a = c128(rr) || ean13(rr); if (a) return a; } return null; };
+    const rows = [0.5, 0.4, 0.6, 0.3, 0.7, 0.45, 0.55, 0.35, 0.65, 0.2, 0.8, 0.25, 0.75, 0.15, 0.85];
+    for (const f of rows) { const y = Math.floor(h * f); const r = lineRuns(L, w, y * w, 1); const a = tryRuns(r); if (a) return a; }
+    for (const f of rows) { const x = Math.floor(w * f); const r = lineRuns(L, h, x, w); const a = tryRuns(r); if (a) return a; }
+    return null;
+  }
+
+  /* ---------- API ---------- */
+  function resize(L, w, h, nw, nh) {
+    const R = new Uint8Array(nw * nh), sx = w / nw, sy = h / nh;
+    if (sx >= 1) { // הקטנה: ממוצע תיבה
+      for (let y = 0; y < nh; y++) { const y0 = Math.floor(y * sy), y1 = Math.max(y0 + 1, Math.floor((y + 1) * sy)); for (let x = 0; x < nw; x++) { const x0 = Math.floor(x * sx), x1 = Math.max(x0 + 1, Math.floor((x + 1) * sx)); let s = 0; for (let yy = y0; yy < y1; yy++) for (let xx = x0, o = yy * w + x0; xx < x1; xx++, o++) s += L[o]; R[y * nw + x] = s / ((y1 - y0) * (x1 - x0)); } }
+    } else { // הגדלה: בילינארית
+      for (let y = 0; y < nh; y++) { const py = Math.min(h - 1.001, Math.max(0, (y + .5) * sy - .5)), y0 = Math.floor(py), fy = py - y0; for (let x = 0; x < nw; x++) { const px = Math.min(w - 1.001, Math.max(0, (x + .5) * sx - .5)), x0 = Math.floor(px), fx = px - x0, o = y0 * w + x0; R[y * nw + x] = (L[o] * (1 - fx) + L[o + 1] * fx) * (1 - fy) + (L[o + w] * (1 - fx) + L[o + w + 1] * fx) * fy; } }
+    }
+    return R;
+  }
+  // מנסים כמה רזולוציות: מהירה קודם, ואז גבוהה/מוגדלת לקודים קטנים
+  function fromImageData(d, w, h) {
+    const L0 = lum(d, w, h), M = Math.max(w, h), done = [];
+    for (const target of [1200, 2000, 2800]) {
+      const s = Math.min(2, target / M); if (done.some(x => Math.abs(x - s) < 0.2)) continue; done.push(s);
+      const nw = Math.round(w * s), nh = Math.round(h * s), L = Math.abs(s - 1) < 1e-3 ? L0 : resize(L0, w, h, nw, nh);
+      const q = qr(L, binarize(L, nw, nh), nw, nh); if (q) return { type: 'qr', text: q };
+      if (done.length === 1) { const l = linear(L0, w, h); if (l) return { type: 'c128', text: l }; }
+    }
+    return null;
+  }
+  async function fromBlob(blob) {
+    const bmp = await createImageBitmap(blob);
+    try {
+      const s = Math.min(1, 2800 / Math.max(bmp.width, bmp.height)), w = Math.round(bmp.width * s), h = Math.round(bmp.height * s);
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      const ctx = c.getContext('2d', { willReadFrequently: true }); ctx.drawImage(bmp, 0, 0, w, h);
+      const d = ctx.getImageData(0, 0, w, h).data; c.width = c.height = 0;
+      return fromImageData(d, w, h);
+    } finally { bmp.close?.(); }
+  }
+  return { fromBlob, fromImageData, _t: { resize, rsFix, decodeMatrix, binarize, lum, finders, c128, ean13 } };
+})();
+
+/* ======================= מילוי אוטומטי מטקסט =======================
+   מקבל טקסט (מזיהוי טקסט או מהדבקה) ומחלץ: שם/תו מוכר, קוד, PIN, סכום, יתרה, תוקף, קישור,
+   פריט, וקופון (% / ₪ הנחה, מינימום קנייה). מחזיר רק מה שנמצא – בלי ניחושים פרועים. */
+function parseVoucherText(raw) {
+  const out = {};
+  let t = String(raw || '').normalize('NFKC')
+    .replace(/[‎‏‪-‮⁦-⁩]/g, '')
+    .replace(/[״“”]/g, '"').replace(/[׳‘’`]/g, "'").replace(/\r/g, '').replace(/[|]/g, ' ');
+  // קישור
+  const lm = t.match(/https?:\/\/[^\s"'<>]+/i) || t.match(/\bwww\.[a-z0-9.-]+\.[a-z]{2,}[^\s"'<>]*/i);
+  if (lm) out.link = (/^https?:/i.test(lm[0]) ? '' : 'https://') + lm[0].replace(/[).,;:'"]+$/, '');
+  t = t.replace(/https?:\/\/\S+|\bwww\.\S+/gi, ' ');
+  const lines = t.split('\n');
+  const lineOf = idx => { let n = 0; for (let i = 0; i < lines.length; i++) { n += lines[i].length + 1; if (idx < n) return lines[i]; } return ''; };
+  const before = (idx, n = 30) => t.slice(Math.max(0, idx - n), idx);
+  const used = []; // טווחים שכבר שויכו (תאריכים/סכומים) – כדי לא לבלבל עם קוד
+  // תאריכים
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  const dates = [];
+  const dRe = /(?<![\d.\/])(?<!\d-)(\d{1,2})\s?[.\/-]\s?(\d{1,2})\s?[.\/-]\s?(\d{4}|\d{2})(?![\d])/g;
+  for (let m; (m = dRe.exec(t));) {
+    let d = +m[1], mo = +m[2], y = +m[3]; if (y < 100) y += 2000;
+    if (mo > 12 && d <= 12) [d, mo] = [mo, d];
+    if (!(d >= 1 && d <= 31 && mo >= 1 && mo <= 12 && y >= 2015 && y <= 2099)) continue;
+    const dt = new Date(y, mo - 1, d); if (dt.getMonth() !== mo - 1) continue;
+    dates.push({ dt, i: m.index, kw: /(תוקף|בתוקף|עד|תפוג|פג|valid|exp|until|use by)/i.test(before(m.index, 28)) });
+    used.push([m.index, m.index + m[0].length]);
+  }
+  const myRe = /(תוקף|בתוקף|valid|exp\w*)[^\d\n]{0,14}(?<![\d.\/])(\d{1,2})\s?\/\s?(\d{2}|\d{4})(?![\d.\/])/gi;
+  for (let m; (m = myRe.exec(t));) { const mo = +m[2]; let y = +m[3]; if (y < 100) y += 2000; if (mo >= 1 && mo <= 12 && y >= 2015) { dates.push({ dt: new Date(y, mo, 0), i: m.index, kw: true }); used.push([m.index, m.index + m[0].length]); } }
+  const pickD = dates.find(x => x.kw) || dates.filter(x => x.dt >= now).sort((a, b) => b.dt - a.dt)[0];
+  if (pickD) { const d = pickD.dt; out.exp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+  // סכומים
+  const num = s => +String(s).replace(/,/g, '');
+  const NUM = '(\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.(\\d{1,2}))?';
+  const CUR = '(?:₪|ש"ח|ש\\s?"\\s?ח|שח|nis|ils)';
+  const money = [];
+  const addM = (m, iNum, iDec, extra = {}) => { const v = Math.round((num(m[iNum]) + (m[iDec] ? +('0.' + m[iDec]) : 0)) * 100); if (v > 0 && v <= 10000000) { const ctx = before(m.index, 26) + m[0]; money.push({ v, i: m.index, bal: /(יתרה|balance|נותר)/i.test(ctx), orig: /(סכום|שווי|ערך|בסך|טעון|amount|value|worth)/i.test(ctx), off: /(הנחה|off|discount)/i.test(ctx + t.slice(m.index + m[0].length, m.index + m[0].length + 12)), min: /(מעל|מינימום|בקנ(י)?יה|ברכישה|min)/i.test(before(m.index, 18)), ...extra }); used.push([m.index, m.index + m[0].length]); } };
+  for (let m, re = new RegExp(CUR + '\\s?' + NUM, 'gi'); (m = re.exec(t));) addM(m, 1, 2);
+  for (let m, re = new RegExp(NUM + '\\s?(?:' + CUR + '|שקלים|שקל)', 'gi'); (m = re.exec(t));) if (!money.some(x => Math.abs(x.i - m.index) < 3)) addM(m, 1, 2);
+  for (let m, re = new RegExp('(?:סכום|שווי|בסך|ערך|יתרה|balance|amount|value)\\s?[:\\-]?\\s?(?:של\\s?)?' + NUM, 'gi'); (m = re.exec(t));) if (!money.some(x => x.i >= m.index && x.i <= m.index + m[0].length)) addM(m, 1, 2);
+  // אחוזים
+  const pm = t.match(/(\d{1,2})\s?%\s?(?:הנחה|off|discount)?/i) || t.match(/(?:הנחה|off|discount)\s?(?:של\s?)?(\d{1,2})\s?%/i);
+  const isCoupon = /קופון|coupon|promo|קוד\s?הנחה|discount\s?code/i.test(t) || (pm && /הנחה|off|discount/i.test(t));
+  if (isCoupon && (pm || money.some(x => x.off))) {
+    out.type = 'coupon';
+    if (pm) { out.deal = 'percent'; out.dealVal = +pm[1]; }
+    else { const o = money.find(x => x.off && !x.min); if (o) { out.deal = 'amount'; out.dealVal = o.v; } }
+    const mn = money.find(x => x.min); if (mn) out.minBuy = mn.v;
+  } else {
+    const b = money.find(x => x.bal), o = money.find(x => x.orig && !x.bal) || money.filter(x => !x.bal && !x.min).sort((a, c) => c.v - a.v)[0];
+    if (o) out.orig = o.v; if (b) out.bal = b.v;
+    if (!o && !b) { const im = t.match(/שובר\s+(?:ל|על\s|עבור\s)\s?([א-ת][^\n,.;:!0-9]{1,28})/); if (im) out.item = im[1].trim(); }
+  }
+  // PIN
+  const pin = t.match(/(?:pin|קוד\s?סודי|קוד\s?אימות|קוד\s?זיהוי|cvv|cvc|סיסמ[הא])\s?[:#\-]?\s?(\d{3,8})(?!\d)/i);
+  if (pin) { out.pin = pin[1]; const k = t.indexOf(pin[0]); used.push([k, k + pin[0].length]); }
+  const isUsed = (a, b) => used.some(([x, y]) => a < y && b > x);
+  // קוד
+  const cleanCode = s => s.replace(/\s+/g, '').replace(/^[-–]+|[-–]+$/g, '').toUpperCase();
+  const kwRe = /(?:קוד\s?(?:ה?שובר|ה?קופון|ה?כרטיס|מימוש|ה?תו|הטבה|גיפט\s?קארד)?|מספר\s?(?:ה?שובר|ה?כרטיס|ה?תו|גיפט\s?קארד)|מס['.]?\s?(?:ה?שובר|ה?כרטיס|ה?תו)|voucher\s?(?:code|no\.?|number|#)?|card\s?(?:no\.?|number|#)|gift\s?(?:card\s?)?code|coupon\s?code|promo\s?code|redeem\s?code|code|barcode|ברקוד)\s?[:#.\-]?\s?([A-Za-z0-9](?:[A-Za-z0-9]|[ \-](?=[A-Za-z0-9])){3,40})/gi;
+  let code = null;
+  for (let m; (m = kwRe.exec(t));) {
+    const c = cleanCode(m[1]), at = m.index + m[0].length - m[1].length;
+    if (c.length >= 4 && /\d/.test(c) && !isUsed(at, at + m[1].length)) { code = c; break; }
+  }
+  if (!code) {
+    const cand = [];
+    for (let m, re = /(?<![\d.\/,])\d(?:[\d]|[ \-](?=\d)){7,30}(?![\d.\/,])/g; (m = re.exec(t));) {
+      const c = cleanCode(m[0]), digits = c.replace(/\D/g, '');
+      if (digits.length < 8 || digits.length > 24 || isUsed(m.index, m.index + m[0].length)) continue;
+      if (/^0(5\d|[2-4]|[89])\d{7}$/.test(digits) || /^1[-\s]?[78]00/.test(m[0])) continue; // טלפונים
+      cand.push({ c, s: digits.length + (/(קוד|מספר|code|no)/i.test(before(m.index, 20)) ? 10 : 0) });
+    }
+    for (let m, re = /\b(?=[A-Z0-9-]*\d)(?=[A-Z0-9-]*[A-Z])[A-Z0-9][A-Z0-9-]{5,24}\b/g; (m = re.exec(t));) if (!isUsed(m.index, m.index + m[0].length)) cand.push({ c: cleanCode(m[0]), s: m[0].length - 2 });
+    cand.sort((a, b) => b.s - a.s); if (cand[0]) code = cand[0].c;
+  }
+  if (code) out.code = code;
+  // שם: תו מוכר → מותג מהמאגר
+  let card = null, cbl = 0;
+  const nt = lines.map(norm);
+  for (const { c, k } of CAT_KEYS) for (const key of k) if (key.length >= 4 && key.length > cbl && nt.some(l => l.includes(key))) { card = c; cbl = key.length; }
+  if (card) { out.cat = card.id; out.name = card.title; }
+  else {
+    let best = null, bl = 0;
+    for (const e of NAME_POOL) for (const key of poolKeys(e)) if (key.length >= 4 && key.length > bl && nt.some(l => l.includes(key))) { best = e; bl = key.length; }
+    if (best) out.name = mainName(best);
+  }
+  return out;
+}
+
+/* ======================= זיהוי טקסט (Tesseract, מתארח בריפו) =======================
+   נטען רק בשימוש הראשון. הקבצים נמשכים דרך ה-service worker (נשמרים ב-cache נפרד),
+   והעובד והליבה נטענים מ-blob URLs – כך זה עובד גם בלי אינטרנט, בלי תלות בכך שה-SW שולט ב-Worker. */
+const OCR = {
+  w: null, loading: null, idle: 0, onLog: null,
+  dir: 'coupontracker-ocr/',
+  simd() { try { return WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11])); } catch { return false; } },
+  async blobUrl(path) { const r = await fetch(this.dir + path); if (!r.ok) throw new Error('fetch ' + path); return URL.createObjectURL(await r.blob()); },
+  load() {
+    if (this.w) return Promise.resolve(this.w);
+    if (!this.loading) this.loading = (async () => {
+      if (!window.Tesseract) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = this.dir + 'tesseract.min.js'; s.onload = res; s.onerror = () => rej(new Error('script')); document.head.appendChild(s); });
+      const [wk, core] = await Promise.all([this.blobUrl('worker.min.js'), this.blobUrl(`core/tesseract-core-${this.simd() ? 'simd-' : ''}lstm.wasm.js`)]);
+      const w = await Tesseract.createWorker(['heb', 'eng'], 1, {
+        workerPath: wk, corePath: core + '#.js', langPath: new URL(this.dir + 'lang', location.href).href, workerBlobURL: true, gzip: true,
+        logger: m => this.onLog?.(m)
+      });
+      await w.setParameters({ preserve_interword_spaces: '1' });
+      this.w = w; return w;
+    })().catch(e => { this.loading = null; throw e; });
+    return this.loading;
+  },
+  async read(blob, onLog) {
+    this.onLog = onLog; clearTimeout(this.idle);
+    const w = await this.load();
+    const { data } = await w.recognize(blob);
+    // משחררים זיכרון אחרי דקה בלי שימוש
+    this.idle = setTimeout(() => { this.w?.terminate(); this.w = null; this.loading = null; }, 60000);
+    return data.text || '';
+  },
+  get ready() { try { return localStorage.getItem('coupontracker.ocr') === '1'; } catch { return false; } },
+  set ready(v) { try { localStorage.setItem('coupontracker.ocr', v ? '1' : '0'); } catch {} }
+};
+// עיבוד מקדים לזיהוי טקסט: הקטנה ל-~2000px, יישור הטיה (פרופיל הקרנה), וסף מקומי לשחור-לבן –
+// Tesseract משתמש בסף גלובלי ונכשל בתאורה לא אחידה ובצילום עקום.
+function skewAngle(L, w, h) {
+  const sw = Math.round(w * 700 / Math.max(w, h)), sh = Math.round(h * 700 / Math.max(w, h));
+  const B = Scan._t.binarize(Scan._t.resize(L, w, h, sw, sh), sw, sh), mx = Math.round(sw * .06), my = Math.round(sh * .06);
+  const pts = []; for (let y = my; y < sh - my; y++) for (let x = mx; x < sw - mx; x++) if (B[y * sw + x]) pts.push(x, y);
+  const score = a => {
+    const r = a * Math.PI / 180, sn = Math.sin(r), cs = Math.cos(r), off = sw, rows = new Float64Array(sh + 2 * sw + 2);
+    for (let k = 0; k < pts.length; k += 2) { const p = pts[k + 1] * cs - pts[k] * sn + off, i = Math.floor(p), f = p - i; rows[i] += 1 - f; rows[i + 1] += f; }
+    let v = 0, prev = 0; for (let i = 2; i < rows.length - 2; i++) { const s = (rows[i - 2] + 2 * rows[i - 1] + 3 * rows[i] + 2 * rows[i + 1] + rows[i + 2]) / 9; v += (s - prev) ** 2; prev = s; }
+    return v;
+  };
+  let best = -1, ang = 0;
+  for (let a = -15; a <= 15; a += 1) { const v = score(a); if (v > best) { best = v; ang = a; } }
+  const a0 = ang; for (let a = a0 - 0.8; a <= a0 + 0.8; a += 0.2) { const v = score(a); if (v > best) { best = v; ang = a; } }
+  return Math.abs(ang) < 0.4 ? 0 : ang;
+}
+async function ocrImage(file) {
+  const bmp = await createImageBitmap(file);
+  const s = Math.min(2, 2000 / Math.max(bmp.width, bmp.height)), w = Math.round(bmp.width * s), h = Math.round(bmp.height * s);
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d', { willReadFrequently: true }); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(bmp, 0, 0, w, h);
+  let id = ctx.getImageData(0, 0, w, h);
+  const ang = skewAngle(Scan._t.lum(id.data, w, h), w, h);
+  if (ang) { ctx.fillRect(0, 0, w, h); ctx.translate(w / 2, h / 2); ctx.rotate(-ang * Math.PI / 180); ctx.drawImage(bmp, -w / 2, -h / 2, w, h); ctx.setTransform(1, 0, 0, 1, 0, 0); id = ctx.getImageData(0, 0, w, h); }
+  bmp.close?.();
+  const B = Scan._t.binarize(Scan._t.lum(id.data, w, h), w, h);
+  for (let i = 0, j = 0; i < B.length; i++, j += 4) { const v = B[i] ? 0 : 255; id.data[j] = id.data[j + 1] = id.data[j + 2] = v; id.data[j + 3] = 255; }
+  ctx.putImageData(id, 0, 0);
+  const b = await new Promise(r => c.toBlob(r, 'image/png')); c.width = c.height = 0; return b;
+}
 const Editor = {
   v: null, imgs: [], removed: [], snap: '', showPaste: false, storeQ: '',
   init() {
@@ -1511,6 +2238,8 @@ const Editor = {
     b.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'esadd') { e.preventDefault(); $('#esaddb').click(); } });
     $('#fcam').onchange = e => this.addFiles(e.target);
     $('#fgal').onchange = e => this.addFiles(e.target);
+    const sc = e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) this.scanFile(f); };
+    $('#fscam').onchange = sc; $('#fsgal').onchange = sc;
     SEG.kind = val => { this.v.kind = val; $('#estores').hidden = val !== 'multi'; };
     const rr = () => { const sc = $('#ebody').scrollTop; this.render(); $('#ebody').scrollTop = sc; };
     SEG.rtype = val => { this.v.type = val; if (this.v.isNew) $('#ettl').textContent = 'חדש'; rr(); };
@@ -1527,6 +2256,7 @@ const Editor = {
     const dv = this.v.dealVal; this.v.dealValS = dv == null ? '' : String(this.v.deal === 'amount' ? dv / 100 : dv);
     this.v.minBuyS = this.v.minBuy != null ? String(this.v.minBuy / 100) : ''; this.v.qtyS = this.v.qty != null ? String(this.v.qty) : '1';
     this.imgs = this.v.imgs.map(id => ({ id, url: null })); this.removed = []; this.showPaste = false; this.storeQ = '';
+    this.scanSt = ''; this.scanPaste = false; this.autoK = []; this.ocrNo = false; this.lastText = '';
     $('#ettl').textContent = isNew ? 'חדש' : (this.v.type === 'coupon' ? 'עריכת קופון' : 'עריכת שובר');
     this.render(); this.snap = this.state();
     this.imgs.forEach(im => Img.url(im.id).then(u => { im.url = u; this.renderThumbs(); }));
@@ -1544,7 +2274,8 @@ const Editor = {
     const v = this.v;
     const f = (lab, k, val, attrs = '') => `<div class="f"><label for="e_${k}">${lab}</label><input id="e_${k}" data-k="${k}" value="${esc(val)}" ${attrs}></div>`;
     const isC = v.type === 'coupon';
-    let h = `<div class="panel"><div class="f r"><label>מה זה</label>${segHTML('rtype', [['voucher', 'שובר / תו'], ['coupon', 'קופון הנחה']], v.type)}</div>${f(isC ? 'חנות' : 'שם', 'name', v.name, `placeholder="${isC ? 'למשל ZARA' : 'למשל BUYME'}" autocomplete="off" autocorrect="off" enterkeyhint="next"`)}<div class="chips" id="nchips"></div>${isC ? '' : `<div class="f r"><label>סוג</label>${segHTML('kind', [['single', 'חנות אחת'], ['multi', 'רב־חנויות']], v.kind)}</div>`}</div>`;
+    let h = v.isNew ? this.scanHTML() : '';
+    h += `<div class="panel"><div class="f r"><label>מה זה</label>${segHTML('rtype', [['voucher', 'שובר / תו'], ['coupon', 'קופון הנחה']], v.type)}</div>${f(isC ? 'חנות' : 'שם', 'name', v.name, `placeholder="${isC ? 'למשל ZARA' : 'למשל BUYME'}" autocomplete="off" autocorrect="off" enterkeyhint="next"`)}<div class="chips" id="nchips"></div>${isC ? '' : `<div class="f r"><label>סוג</label>${segHTML('kind', [['single', 'חנות אחת'], ['multi', 'רב־חנויות']], v.kind)}</div>`}</div>`;
     if (isC) {
       h += `<div class="sh">ההטבה</div><div class="panel"><div class="f r"><label>סוג הטבה</label>${segHTML('deal', [['amount', '₪ הנחה'], ['percent', '% הנחה'], ['text', 'אחר']], v.deal)}</div>${v.deal === 'text' ? f('ההטבה', 'dealText', v.dealText, 'placeholder="למשל 1+1 על כל החולצות" autocomplete="off"') : f(v.deal === 'percent' ? 'אחוז' : 'סכום', 'dealValS', v.dealValS, `class="num e" inputmode="decimal" placeholder="${v.deal === 'percent' ? '50%' : '₪50'}" autocomplete="off"`)}${f('בקנייה מעל', 'minBuyS', v.minBuyS, 'class="num e" inputmode="decimal" placeholder="לא חובה" autocomplete="off"')}</div>`;
     }
@@ -1571,6 +2302,77 @@ const Editor = {
     h += `<div class="sh">הערות</div><div class="panel"><div class="f one"><textarea data-k="notes" placeholder="הערות חופשיות">${esc(v.notes)}</textarea></div></div>`;
     if (!v.isNew) h += `<div class="panel"><button class="row act red tap" id="edel"><i></i><div>${isC ? 'מחיקת הקופון' : 'מחיקת השובר'}</div></button></div>`;
     const b = $('#ebody'); b.innerHTML = h; initSegs(b); this.renderThumbs();
+    for (const k of this.autoK || []) b.querySelector(`[data-k="${k}"]`)?.closest('.f')?.classList.add('auto');
+  },
+  scanHTML() {
+    return `<div class="panel" id="escan"><button class="row s act tap" id="escam"><i></i><div>צילום השובר ומילוי אוטומטי</div></button><button class="row s act tap" id="escgal"><i></i><div>מילוי מתמונה מהגלריה</div></button><button class="row s act tap" id="esctxt"><i></i><div>הדבקת טקסט מהשובר</div></button><div class="pastebox" id="esctbox" ${this.scanPaste ? '' : 'hidden'}><textarea id="escta" placeholder="הדביקו כאן טקסט מהשובר – הודעה, מייל או טקסט שהועתק מהתמונה"></textarea><button class="btn pri" id="esctok">מילוי מהטקסט</button></div><div class="scanst" id="escst" ${this.scanSt ? '' : 'hidden'}>${this.scanSt || ''}</div></div><div class="sf">הקוד נקרא מה־QR או מהברקוד, ושאר הפרטים מזיהוי הטקסט. התמונה נשמרת עם השובר.</div>`;
+  },
+  say(html) { this.scanSt = html; const st = $('#escst'); if (st) { st.hidden = !html; st.innerHTML = html; } },
+  async ocrConsent() {
+    if (OCR.ready) return true;
+    if (this.ocrNo) return false;
+    const i = await actionSheet('זיהוי טקסט מהתמונה צריך רכיב של כ־7.5MB. הוא יורד פעם אחת, ואחר כך עובד גם בלי אינטרנט.', [{ label: 'הורדה וזיהוי טקסט' }, { label: 'רק קוד/ברקוד בלי טקסט' }]);
+    if (i !== 0) { this.ocrNo = true; return false; }
+    return true;
+  },
+  applyFill(f) {
+    const v = this.v, done = [], keys = [];
+    const empty = k => !String(v[k] ?? '').trim();
+    const set = (k, val, label) => { if (val == null || val === '' || !empty(k)) return; v[k] = String(val); done.push(label); keys.push(k); };
+    if (f.type === 'coupon' && v.type !== 'coupon' && v.isNew && empty('origS') && empty('balS') && empty('pin')) { v.type = 'coupon'; done.push('קופון'); }
+    set('name', f.name, 'שם');
+    set('code', f.code, 'קוד');
+    if (v.type === 'coupon') {
+      if (f.deal && empty('dealValS')) { v.deal = f.deal; v.dealValS = String(f.deal === 'amount' ? f.dealVal / 100 : f.dealVal); done.push('הנחה'); keys.push('dealValS'); }
+      if (f.minBuy) set('minBuyS', f.minBuy / 100, 'מינימום קנייה');
+    } else {
+      set('pin', f.pin, 'PIN');
+      if (f.item && empty('origS') && empty('item')) { v.valKind = 'item'; v.item = f.item; done.push('פריט'); keys.push('item'); }
+      else if (v.valKind !== 'item') { if (f.orig != null) set('origS', f.orig / 100, 'סכום'); if (f.bal != null) set('balS', f.bal / 100, 'יתרה'); }
+    }
+    if (f.exp && !v.exp) { v.exp = f.exp; v.noexp = false; done.push('תוקף'); keys.push('exp'); }
+    set('link', f.link, 'קישור');
+    if (f.bc && keys.includes('code')) v.bc = f.bc;
+    this.autoK = (this.autoK || []).concat(keys);
+    return done;
+  },
+  rerender() { const b = $('#ebody'), sc = b.scrollTop; this.render(); b.scrollTop = sc; this.nameChanged(); },
+  async scanFile(file) {
+    if (this.scanning) return; this.scanning = true;
+    const spin = '<span class="spin"></span>';
+    try {
+      this.say(spin + 'מעבד את התמונה…');
+      try { const blob = await compress(file); this.imgs.push({ blob, url: URL.createObjectURL(blob) }); this.renderThumbs(); }
+      catch { this.say('לא ניתן לקרוא את התמונה'); return; }
+      this.say(spin + 'מחפש QR או ברקוד…');
+      let bc = null; try { bc = await Scan.fromBlob(file); } catch { }
+      const found = {};
+      if (bc) { found.code = bc.text; found.bc = bc.type; if (/^https?:\/\/\S+$/i.test(bc.text)) found.link = bc.text; }
+      let text = '', ocrFail = false;
+      if (await this.ocrConsent()) {
+        this.say(spin + (OCR.ready ? 'מזהה טקסט…' : 'מוריד את רכיב זיהוי הטקסט (פעם אחת)…'));
+        try {
+          text = await OCR.read(await ocrImage(file), m => { if (m.status === 'recognizing text') this.say(`${spin}מזהה טקסט… <span class="num">${Math.round(m.progress * 100)}%</span>`); });
+          OCR.ready = true;
+        } catch { ocrFail = true; }
+      }
+      const p = text ? parseVoucherText(text) : {};
+      if (found.code) { p.code = found.code; p.bc = found.bc; if (found.link) p.link = found.link; }
+      const done = this.applyFill(p);
+      this.lastText = text;
+      const parts = [];
+      parts.push(bc ? `נמצא ${bc.type === 'qr' ? 'QR' : 'ברקוד'} ✓` : 'לא נמצא QR או ברקוד בתמונה');
+      if (ocrFail) parts.push('זיהוי הטקסט נכשל (אולי אין אינטרנט בשימוש הראשון)');
+      parts.push(done.length ? `מולא: <b>${done.join(', ')}</b> – כדאי לעבור ולבדוק` : 'לא זוהו פרטים נוספים – אפשר להדביק טקסט או למלא ידנית');
+      this.scanSt = parts.join('<br>') + (text.trim() ? `<br><button class="lnk" id="escshow">הטקסט שזוהה</button><pre id="escpre" hidden>${esc(text.trim())}</pre>` : '');
+      this.rerender();
+    } finally { this.scanning = false; }
+  },
+  fillFromText(text) {
+    const done = this.applyFill(parseVoucherText(text));
+    this.scanPaste = false;
+    this.scanSt = done.length ? `מולא מהטקסט: <b>${done.join(', ')}</b> – כדאי לעבור ולבדוק` : 'לא זוהו פרטים בטקסט';
+    this.rerender();
   },
   nameChanged() { const sg = $('#esug'); const h = this.v.type === 'coupon' ? '' : this.sugHTML(); if (sg.innerHTML !== h) sg.innerHTML = h; },
   sugHTML() {
@@ -1603,6 +2405,11 @@ const Editor = {
   },
   onClick(e) {
     const t = e.target;
+    if (t.closest('#escam')) return $('#fscam').click();
+    if (t.closest('#escgal')) return $('#fsgal').click();
+    if (t.closest('#esctxt')) { this.scanPaste = !this.scanPaste; $('#esctbox').hidden = !this.scanPaste; if (this.scanPaste) $('#escta').focus(); return; }
+    if (t.closest('#esctok')) { const v = $('#escta').value; if (v.trim()) this.fillFromText(v); return; }
+    if (t.closest('#escshow')) { const pr = $('#escpre'); pr.hidden = !pr.hidden; return; }
     if (t.closest('#esaddb')) { const inp = $('#esadd'); const n = this.addStores([inp.value]); inp.value = ''; $('#schips').innerHTML = ''; if (n) { this.refreshStores(); } inp.focus(); return; }
     const rm = t.closest('[data-rms]'); if (rm) { this.v.stores.splice(+rm.dataset.rms, 1); this.refreshStores(); return; }
     const nc = t.closest('[data-nchip]'); if (nc) { const val = mainName(nc.dataset.nchip); const inp = $('#e_name'); inp.value = val; this.v.name = val; $('#nchips').innerHTML = ''; this.nameChanged(); return; }
@@ -1901,12 +2708,14 @@ function openFromRow(e) {
 }
 function init() {
   $('#gear').innerHTML = gearSvg();
-  Toast.init(); Pager.init(); Pull.init(); Detail.init(); bindDetail(); Editor.init(); Redeem.init(); Lock.init(); BcFull.init(); Viewer.init();
+  Toast.init(); Pager.init(); Wallet.init(); Pull.init(); Detail.init(); bindDetail(); Editor.init(); Redeem.init(); Lock.init(); BcFull.init(); Viewer.init();
   Acts = new BottomSheet($('#acts'));
   $$('#pages .page').forEach(p => { const u = collapse(p, 'tab'); u(); });
   $('#list').addEventListener('click', e => {
     if (e.target.closest('#emptyadd')) return Editor.open(null);
     const lc = e.target.closest('[data-lcat]'); if (lc) { List.cat = List.cat === lc.dataset.lcat ? null : lc.dataset.lcat; renderList(); return; }
+    const wc = e.target.closest('.wcard');
+    if (wc) { if (performance.now() < Wallet.suppress) return; if (wc.dataset.id !== Wallet.front) { Wallet.setFront(wc.dataset.id); return; } }
     openFromRow(e);
   });
   $('#add').onclick = () => Editor.open(null);
@@ -1946,7 +2755,7 @@ async function boot() {
   navigator.storage?.persist?.().catch(() => {});
   if ('serviceWorker' in navigator && location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1') navigator.serviceWorker?.register('coupontracker-sw.js', { scope: './coupontracker' }).catch(() => {});
 }
-window.App = { Store, Ticker, Spring, QR, C128, Detail, Pager, Editor, Viewer, Img, IDB };
+window.App = { Wallet, Store, Ticker, Spring, QR, C128, Detail, Pager, Editor, Viewer, Img, IDB };
 boot();
 </script>
 </body>
